@@ -10,6 +10,12 @@
 //! - `ring` — use the ring crypto library instead
 //! - `custom-crypto-provider` — bring your own provider via
 //!   `rustls::crypto::CryptoProvider::install_default`
+//!
+//! # Client verifier
+//!
+//! The `platform-verifier` feature (enabled by default) makes [`ClientQuicConfig::default`]
+//! verify servers with [`rustls-platform-verifier`](https://docs.rs/rustls-platform-verifier).
+//! Without it, the default trusts the WebPKI roots compiled into the binary.
 
 #[cfg(test)]
 #[doc = include_str!("../README.md")]

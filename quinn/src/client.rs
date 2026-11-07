@@ -23,7 +23,7 @@ use trillium_server_common::{Connector, QuicClientConfig};
 ///
 /// let client = trillium_client::Client::new_with_quic(
 ///     ClientConfig::default(),
-///     ClientQuicConfig::with_webpki_roots(),
+///     ClientQuicConfig::default(),
 /// );
 /// ```
 pub struct ClientQuicConfig {
@@ -42,26 +42,72 @@ impl Debug for ClientQuicConfig {
     }
 }
 
-impl ClientQuicConfig {
-    /// Build a `ClientQuicConfig` trusting the [WebPKI](https://github.com/rustls/webpki-roots)
-    /// root certificates.
+impl Default for ClientQuicConfig {
+    /// Verifies servers with
+    /// [`rustls-platform-verifier`](https://docs.rs/rustls-platform-verifier) when the
+    /// `platform-verifier` feature is enabled (the default), and against the
+    /// [WebPKI](https://github.com/rustls/webpki-roots) roots compiled into the binary otherwise.
     ///
-    /// Suitable for connecting to publicly trusted servers. For custom CA trust or client
-    /// authentication, use [`from_rustls_client_config`](Self::from_rustls_client_config).
+    /// The platform verifier uses the operating system's verifier and trust store on macOS, iOS,
+    /// Windows, and Android. On Linux and other Unix systems it verifies against the system CA
+    /// bundle — or, when `SSL_CERT_FILE` or `SSL_CERT_DIR` is set, against only the certificates
+    /// those name.
     ///
-    /// Requires the `webpki-roots` crate feature.
-    #[cfg(feature = "webpki-roots")]
-    pub fn with_webpki_roots() -> Self {
-        let root_store =
-            rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let crypto =
-            rustls::ClientConfig::builder_with_provider(crate::crypto_provider::crypto_provider())
-                .with_safe_default_protocol_versions()
-                .expect("building TLS config with protocol versions")
-                .with_root_certificates(root_store)
-                .with_no_client_auth();
+    /// # Panics
+    ///
+    /// With the platform verifier on Linux and other Unix systems, panics if no CA certificates
+    /// can be loaded: no system bundle is installed, or `SSL_CERT_FILE` and `SSL_CERT_DIR` name no
+    /// readable certificates.
+    fn default() -> Self {
+        Self::from_rustls_client_config(default_tls_config())
+    }
+}
 
-        Self::from_rustls_client_config(crypto)
+#[cfg(feature = "platform-verifier")]
+fn default_tls_config() -> rustls::ClientConfig {
+    use rustls_platform_verifier::BuilderVerifierExt;
+    tls_config_builder()
+        .with_platform_verifier()
+        .unwrap_or_else(|e| {
+            panic!(
+                "could not build the platform certificate verifier ({e}). If SSL_CERT_FILE or \
+                 SSL_CERT_DIR is set, it must name readable PEM certificates; otherwise install \
+                 the system CA certificates (often the `ca-certificates` package), or disable \
+                 trillium-quinn's `platform-verifier` feature to use the WebPKI roots compiled \
+                 into the binary"
+            )
+        })
+        .with_no_client_auth()
+}
+
+#[cfg(not(feature = "platform-verifier"))]
+fn default_tls_config() -> rustls::ClientConfig {
+    webpki_roots_tls_config()
+}
+
+fn webpki_roots_tls_config() -> rustls::ClientConfig {
+    let root_store =
+        rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    tls_config_builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth()
+}
+
+fn tls_config_builder() -> rustls::ConfigBuilder<rustls::ClientConfig, rustls::WantsVerifier> {
+    rustls::ClientConfig::builder_with_provider(crate::crypto_provider::crypto_provider())
+        .with_safe_default_protocol_versions()
+        .expect("building TLS config with protocol versions")
+}
+
+impl ClientQuicConfig {
+    /// Build a `ClientQuicConfig` trusting only the
+    /// [WebPKI](https://github.com/rustls/webpki-roots) root certificates compiled into the
+    /// binary, regardless of the platform's trust configuration.
+    ///
+    /// [`ClientQuicConfig::default`] is usually what you want. For custom CA trust or client
+    /// authentication, use [`from_rustls_client_config`](Self::from_rustls_client_config).
+    pub fn with_webpki_roots() -> Self {
+        Self::from_rustls_client_config(webpki_roots_tls_config())
     }
 
     /// Build from a pre-built [`rustls::ClientConfig`].

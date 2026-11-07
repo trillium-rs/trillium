@@ -60,7 +60,7 @@ fn main() {
 
             let client = Client::new_with_quic(
                 RustlsConfig::<ClientConfig>::default(),
-                ClientQuicConfig::with_webpki_roots(),
+                ClientQuicConfig::default(),
             );
             let client = if std::env::var("DOH_HTTP3").is_ok() {
                 client.with_doh3(resolver)

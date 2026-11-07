@@ -24,7 +24,7 @@ fn main() {
     TokioRuntime::default().block_on(async move {
         let client = Client::new_with_quic(
             RustlsConfig::<ClientConfig>::default(),
-            ClientQuicConfig::with_webpki_roots(),
+            ClientQuicConfig::default(),
         );
 
         for i in 1..=4 {

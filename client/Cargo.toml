@@ -78,4 +78,4 @@ trillium-smol = { path = "../smol" }
 trillium-testing = { path = "../testing" }
 trillium-tokio = { path = "../tokio" }
 trillium-rustls = { path = "../rustls" }
-trillium-quinn = { path = "../quinn", features = ["webpki-roots"] }
+trillium-quinn = { path = "../quinn" }

@@ -140,7 +140,7 @@ When built using `Client::new_with_quic`, the client upgrades to HTTP/3 automati
 # [dependencies]
 # trillium-tokio = { path = "../tokio" }
 # trillium-client = { path = "../client" }
-# trillium-quinn = { path = "../quinn", features = ["webpki-roots"] }
+# trillium-quinn = { path = "../quinn" }
 # trillium-rustls = { path = "../rustls" }
 # trillium-testing = { path = "../testing" }
 #
@@ -152,7 +152,7 @@ use trillium_tokio::ClientConfig;
 
 let client = Client::new_with_quic(
     RustlsConfig::<ClientConfig>::default(),
-    ClientQuicConfig::with_webpki_roots(),
+    ClientQuicConfig::default(),
 );
 
 // Request 1: HTTP/1.1 (no Alt-Svc cached)

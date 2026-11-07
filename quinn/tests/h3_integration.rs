@@ -1,11 +1,17 @@
 #![cfg(quinn_testing)]
 
 use rcgen::generate_simple_self_signed;
-use std::{io, net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 use trillium::{Conn, KnownHeaderName};
 use trillium_client::{Client, Version};
 use trillium_quinn::{ClientQuicConfig, QuicConfig};
-use trillium_rustls::{RustlsConfig, rustls};
+use trillium_rustls::{
+    RustlsConfig,
+    rustls::{
+        self,
+        pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject},
+    },
+};
 use trillium_testing::{TestResult, client_config, config, harness, test};
 
 // ---------------------------------------------------------------------------
@@ -59,12 +65,10 @@ async fn start_server(handler: impl trillium::Handler, tc: &TestCert) -> SocketA
 
 /// Build an `Arc<dyn ResolvesServerCert>` that always returns the test cert.
 fn static_cert_resolver(tc: &TestCert) -> Arc<dyn rustls::server::ResolvesServerCert> {
-    let certs: Vec<_> = rustls_pemfile::certs(&mut io::BufReader::new(&tc.cert_pem[..]))
+    let certs: Vec<_> = CertificateDer::pem_slice_iter(&tc.cert_pem)
         .collect::<Result<_, _>>()
         .unwrap();
-    let key = rustls_pemfile::private_key(&mut io::BufReader::new(&tc.key_pem[..]))
-        .unwrap()
-        .unwrap();
+    let key = PrivateKeyDer::from_pem_slice(&tc.key_pem).unwrap();
     let certified_key = rustls::sign::CertifiedKey::from_der(
         certs,
         key,
@@ -225,5 +229,25 @@ async fn trillium_client_h3_via_cert_resolver() -> TestResult {
         conn.response_body().read_string().await?,
         "hello via resolver"
     );
+    Ok(())
+}
+
+#[test(harness)]
+async fn default_client_quic_config_rejects_untrusted_cert() -> TestResult {
+    let tc = test_cert();
+    let addr = start_server(|conn: Conn| async move { conn.ok("hello") }, &tc).await;
+
+    // TCP trusts the test cert, so a rejected h3 handshake falls back rather than failing.
+    let client = Client::new_with_quic(
+        RustlsConfig::new(rustls_client_config(&tc), client_config()),
+        ClientQuicConfig::default(),
+    );
+    let conn = client
+        .get(format!("https://localhost:{}/", addr.port()))
+        .with_http_version(Version::Http3)
+        .await?;
+
+    assert_eq!(conn.status().unwrap(), 200u16);
+    assert_ne!(conn.http_version(), Version::Http3);
     Ok(())
 }

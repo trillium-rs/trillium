@@ -147,7 +147,7 @@ To proxy over HTTP/3 to the upstream, initialize the client with `new_with_quic`
 # trillium-smol = { path = "../smol" }
 # trillium-client = { path = "../client" }
 # trillium-proxy = { path = "../proxy" }
-# trillium-quinn = { path = "../quinn", features = ["webpki-roots"] }
+# trillium-quinn = { path = "../quinn" }
 # trillium-rustls = { path = "../rustls" }
 #
 # fn main() {
@@ -159,7 +159,7 @@ use trillium_proxy::Proxy;
 
 let client = Client::new_with_quic(
     RustlsConfig::<ClientConfig>::default(),
-    ClientQuicConfig::with_webpki_roots(),
+    ClientQuicConfig::default(),
 );
 
 trillium_smol::run(Proxy::new(client, "https://upstream/"));

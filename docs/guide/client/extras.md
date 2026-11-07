@@ -37,7 +37,7 @@ The resulting `WebSocketConn` exposes the same send/receive interface as the ser
 # [dependencies]
 # trillium-tokio = { path = "../tokio" }
 # trillium-client = { path = "../client", features = ["webtransport"] }
-# trillium-quinn = { path = "../quinn", features = ["webpki-roots"] }
+# trillium-quinn = { path = "../quinn" }
 # trillium-rustls = { path = "../rustls" }
 #
 # fn main() {
@@ -48,7 +48,7 @@ use trillium_tokio::ClientConfig;
 
 let client = Client::new_with_quic(
     RustlsConfig::<ClientConfig>::default(),
-    ClientQuicConfig::with_webpki_roots(),
+    ClientQuicConfig::default(),
 );
 
 let conn = client.webtransport("https://example.com/wt");

@@ -2,7 +2,10 @@ use crate::{
     connection::QuinnConnection,
     runtime::{SocketTransport, TrilliumRuntime},
 };
-use rustls::server::ResolvesServerCert;
+use rustls::{
+    pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject},
+    server::ResolvesServerCert,
+};
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -31,13 +34,11 @@ impl QuicConfig {
     /// Automatically configures ALPN for HTTP/3 (`h3`). For a custom TLS setup, use
     /// [`from_rustls_server_config`](Self::from_rustls_server_config).
     pub fn from_single_cert(cert_pem: &[u8], key_pem: &[u8]) -> Self {
-        let certs: Vec<_> = rustls_pemfile::certs(&mut io::BufReader::new(cert_pem))
+        let certs: Vec<_> = CertificateDer::pem_slice_iter(cert_pem)
             .collect::<Result<_, _>>()
             .expect("parsing certificate PEM");
 
-        let key = rustls_pemfile::private_key(&mut io::BufReader::new(key_pem))
-            .expect("parsing private key PEM")
-            .expect("no private key found in PEM");
+        let key = PrivateKeyDer::from_pem_slice(key_pem).expect("parsing private key PEM");
 
         let mut tls_config =
             rustls::ServerConfig::builder_with_provider(crate::crypto_provider::crypto_provider())
