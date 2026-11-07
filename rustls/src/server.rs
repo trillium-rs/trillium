@@ -1,7 +1,10 @@
 use crate::crypto_provider;
 use futures_rustls::{
     TlsAcceptor,
-    rustls::{ServerConfig, ServerConnection},
+    rustls::{
+        ServerConfig, ServerConnection,
+        pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject},
+    },
     server::TlsStream,
 };
 use std::{
@@ -38,9 +41,10 @@ impl RustlsAcceptor {
     /// [`ServerConfig`], use ServerConfig's `Into<RustlsAcceptor>`, eg
     ///
     /// ```rust,no_run
-    /// use trillium_rustls::{rustls::ServerConfig, RustlsAcceptor};
+    /// use trillium_rustls::{RustlsAcceptor, rustls::ServerConfig};
+    /// # use trillium_rustls::rustls::pki_types::{PrivateKeyDer, pem::PemObject};
     /// # let certs = vec![];
-    /// # let mut private_key = rustls_pemfile::private_key(&mut std::io::Cursor::new(b"")).unwrap().unwrap();
+    /// # let private_key = PrivateKeyDer::from_pem_slice(b"").unwrap();
     /// let rustls_acceptor: RustlsAcceptor = ServerConfig::builder()
     ///     .with_no_client_auth()
     ///     .with_single_cert(certs, private_key)
@@ -72,15 +76,12 @@ impl RustlsAcceptor {
     }
 
     fn single_cert_with_alpn(cert: &[u8], key: &[u8], alpn_protocols: Vec<Vec<u8>>) -> Self {
-        use std::io::Cursor;
-
-        let cert_chain = rustls_pemfile::certs(&mut Cursor::new(cert))
+        let cert_chain = CertificateDer::pem_slice_iter(cert)
             .collect::<Result<_, _>>()
             .expect("could not read certificate");
 
-        let key_der = rustls_pemfile::private_key(&mut Cursor::new(key))
-            .expect("could not read key pemfile")
-            .expect("no private key found in `key`");
+        let key_der =
+            PrivateKeyDer::from_pem_slice(key).expect("could not read a private key from `key`");
 
         let mut config = ServerConfig::builder_with_provider(crypto_provider())
             .with_safe_default_protocol_versions()

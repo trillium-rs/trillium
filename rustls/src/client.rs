@@ -5,7 +5,7 @@ use futures_rustls::rustls::{
     DigitallySignedStruct, SignatureScheme,
     client::danger::{HandshakeSignatureValid, ServerCertVerified},
     crypto::{verify_tls12_signature, verify_tls13_signature},
-    pki_types::{CertificateDer, UnixTime},
+    pki_types::UnixTime,
 };
 use futures_rustls::{
     TlsConnector,
@@ -14,7 +14,7 @@ use futures_rustls::{
         ClientConfig, ClientConnection, RootCertStore,
         client::{WebPkiServerVerifier, danger::ServerCertVerifier},
         crypto::CryptoProvider,
-        pki_types::ServerName,
+        pki_types::{CertificateDer, ServerName, pem::PemObject},
     },
 };
 use std::{
@@ -57,6 +57,21 @@ impl<C: Connector> RustlsConfig<C> {
 }
 
 impl Default for RustlsClientConfig {
+    /// Verifies servers with
+    /// [`rustls-platform-verifier`](https://docs.rs/rustls-platform-verifier) when the
+    /// `platform-verifier` feature is enabled (the default), and against the
+    /// [WebPKI](https://github.com/rustls/webpki-roots) roots compiled into the binary otherwise.
+    ///
+    /// The platform verifier uses the operating system's verifier and trust store on macOS, iOS,
+    /// Windows, and Android. On Linux and other Unix systems it verifies against the system CA
+    /// bundle — or, when `SSL_CERT_FILE` or `SSL_CERT_DIR` is set, against only the certificates
+    /// those name.
+    ///
+    /// # Panics
+    ///
+    /// With the platform verifier on Linux and other Unix systems, panics if no CA certificates
+    /// can be loaded: no system bundle is installed, or `SSL_CERT_FILE` and `SSL_CERT_DIR` name no
+    /// readable certificates.
     fn default() -> Self {
         Self(Arc::new(default_client_config()))
     }
@@ -64,7 +79,17 @@ impl Default for RustlsClientConfig {
 
 #[cfg(feature = "platform-verifier")]
 fn verifier(provider: Arc<CryptoProvider>) -> Arc<dyn ServerCertVerifier> {
-    Arc::new(rustls_platform_verifier::Verifier::new(provider).unwrap())
+    Arc::new(
+        rustls_platform_verifier::Verifier::new(provider).unwrap_or_else(|e| {
+            panic!(
+                "could not build the platform certificate verifier ({e}). If SSL_CERT_FILE or \
+                 SSL_CERT_DIR is set, it must name readable PEM certificates; otherwise install \
+                 the system CA certificates (often the `ca-certificates` package), or disable \
+                 trillium-rustls's `platform-verifier` feature to use the WebPKI roots compiled \
+                 into the binary"
+            )
+        }),
+    )
 }
 
 #[cfg(not(feature = "platform-verifier"))]
@@ -112,9 +137,9 @@ impl RustlsClientConfig {
     /// trust anchors are rejected by the verifier builder.
     pub fn from_root_cert_pem(pem: &[u8]) -> Result<Self> {
         let mut roots = RootCertStore::empty();
-        let mut reader = pem;
-        for cert in rustls_pemfile::certs(&mut reader) {
-            roots.add(cert?).map_err(Error::other)?;
+        for cert in CertificateDer::pem_slice_iter(pem) {
+            let cert = cert.map_err(|e| Error::new(ErrorKind::InvalidData, e))?;
+            roots.add(cert).map_err(Error::other)?;
         }
 
         if roots.is_empty() {

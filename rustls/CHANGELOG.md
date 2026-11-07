@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.5] - 2026-11-06
+
+### Changed
+
+- When `RustlsClientConfig::default()` can't load any CA certificates (Linux and other Unix
+  systems, with the platform verifier), it still panics, but the message now names the likely
+  causes and fixes instead of an opaque `unwrap` error.
+- No longer depends on the unmaintained `rustls-pemfile` crate
+  ([RUSTSEC-2025-0134](https://rustsec.org/advisories/RUSTSEC-2025-0134)). PEM parsing behaves as
+  before.
+
 ## [0.11.4] - 2026-11-05
 
 ### Added
