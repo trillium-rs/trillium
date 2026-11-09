@@ -757,7 +757,7 @@ where
         } else {
             ClosedReason::EndStream
         };
-        self.closed_streams.record(stream_id, reason);
+        self.closed_streams.record_close(stream_id, reason);
         if let Some(entry) = self.streams.get(&stream_id) {
             resolve_submit_send(&entry.shared, result);
             // Wake every conn-task-side waiter so a handler parked on this stream observes the

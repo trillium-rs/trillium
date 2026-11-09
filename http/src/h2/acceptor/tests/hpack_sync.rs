@@ -329,6 +329,29 @@ fn assert_response_header(fx: &DriverFixture, id: u32, name: &'static str, value
     assert_eq!(field_section.headers().get_str(name), Some(value));
 }
 
+/// The server resets a stream its handler abandoned while the client's trailers were already on
+/// the way. The block is decoded and dropped without another reset.
+#[test]
+fn late_block_on_locally_reset_server_stream_keeps_hpack_in_sync() {
+    for delivery in [Delivery::Whole, Delivery::Split] {
+        let mut fx = DriverFixture::new_server();
+        fx.complete_handshake();
+        fx.peer_open_stream(1, Method::Post, "/", false);
+        drop(expect_conn(&mut fx));
+        let _ = fx.tick();
+        assert_rst(&fx.next_outbound_frames(), 1, H2ErrorCode::Cancel);
+
+        let block = [RESTORE_TABLE_SIZE, INSERT_SYNC].concat();
+        let frames = deliver_block(&mut fx, 1, &block, None, delivery, |_| {});
+        assert_eq!(rst_on(&frames, 1), None, "{delivery:?}: {frames:?}");
+        assert_no_goaway(&frames);
+
+        peer_headers_fragment(&mut fx, 3, &[GET_REQUEST, USE_SYNC].concat(), None, true);
+        let conn = expect_conn(&mut fx);
+        assert_eq!(conn.request_headers().get_str("x-sync"), Some("probe"));
+    }
+}
+
 #[test]
 fn late_block_on_canceled_client_stream_keeps_hpack_in_sync() {
     for delivery in [Delivery::Whole, Delivery::Split] {
@@ -342,7 +365,7 @@ fn late_block_on_canceled_client_stream_keeps_hpack_in_sync() {
         let (next, _transport) = open_get(&mut fx);
         let block = [RESTORE_TABLE_SIZE, STATUS_OK, INSERT_SYNC].concat();
         let frames = deliver_block(&mut fx, canceled, &block, None, delivery, |_| {});
-        assert_rst(&frames, canceled, H2ErrorCode::StreamClosed);
+        assert_eq!(rst_on(&frames, canceled), None, "{delivery:?}: {frames:?}");
         assert_no_goaway(&frames);
 
         peer_headers_fragment(&mut fx, next, &[STATUS_OK, USE_SYNC].concat(), None, true);

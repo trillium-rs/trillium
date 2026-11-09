@@ -1,4 +1,4 @@
-use super::super::{CloseOutcome, ClosedReason, H2Driver, MAX_FLOW_CONTROL_WINDOW, frame_slice};
+use super::super::{CloseOutcome, H2Driver, MAX_FLOW_CONTROL_WINDOW, frame_slice};
 use crate::h2::{
     H2ErrorCode, frame::FRAME_HEADER_LEN, role::Role, stream_state::StreamEvent,
     transport::StreamState,
@@ -41,6 +41,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> H2Driver<T> {
         if self.stream_is_idle(stream_id) && !self.streams.contains_key(&stream_id) {
             return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
         }
+        self.closed_streams.record_peer_reset(stream_id);
         if let Some(entry) = self.streams.get(&stream_id) {
             // Move the stream to the terminal `Closed{Reset}` state before tearing down, so
             // a handler parked on it re-polls to EOF / `BrokenPipe` rather than accepting
@@ -63,10 +64,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> H2Driver<T> {
                     Err(std::io::Error::other("peer RST_STREAM")),
                 );
             }
-        } else {
-            // Already closed from our side; still record (idempotent) so later
-            // stray peer frames on this id map to the right error category.
-            self.closed_streams.record(stream_id, ClosedReason::Reset);
         }
         Ok(())
     }
@@ -78,9 +75,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> H2Driver<T> {
     /// Stream-state errors:
     /// - **Idle** (never opened by its initiating endpoint): DATA on an unopened stream is a
     ///   connection-level `PROTOCOL_ERROR`.
-    /// - **Closed** (opened, no longer in the active map): stream-level
-    ///   `RST_STREAM(STREAM_CLOSED)`. Sent after-the-fact — peer has already written this frame and
-    ///   we've already read it off the wire.
+    /// - **Closed** (opened, no longer in the active map): ignored if we reset the stream, since
+    ///   the peer may have sent it before seeing our `RST_STREAM`; otherwise stream-level
+    ///   `RST_STREAM(STREAM_CLOSED)`, after which later frames on it are ignored too.
     /// - **Half-closed remote** (in map, lifecycle already recv-closed): same stream-level
     ///   `STREAM_CLOSED`.
     ///
@@ -112,16 +109,18 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> H2Driver<T> {
         }
 
         if !self.streams.contains_key(&stream_id) {
-            return if self.stream_is_idle(stream_id) {
-                // Idle — never opened; connection error.
-                Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError))
-            } else {
-                // Closed — stream-level. Nothing will read these bytes, so their connection
-                // window goes straight back.
+            if self.stream_is_idle(stream_id) {
+                return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
+            }
+            if !self
+                .closed_stream(stream_id)
+                .is_some_and(|closed| closed.ignore_late_frames)
+            {
                 self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
-                self.release_connection_window(flow_controlled);
-                Ok(())
-            };
+            }
+            // Nothing will read these bytes, so their connection window goes straight back.
+            self.release_connection_window(flow_controlled);
+            return Ok(());
         }
 
         let entry = self
