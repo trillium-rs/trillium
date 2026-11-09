@@ -184,10 +184,12 @@ impl AsyncRead for H2Transport {
         if take > 0 {
             out[..take].copy_from_slice(&recv[..take]);
             recv.ignore_front(take);
-            drop(recv);
+            // Counted under the buffer lock, so a driver releasing a removed stream's window sees
+            // each byte exactly once: still buffered, or consumed.
             recv_state
                 .bytes_consumed
                 .fetch_add(take as u64, Ordering::AcqRel);
+            drop(recv);
             connection.signal_driver(self.stream_id, &self.state);
             return Poll::Ready(Ok(take));
         }

@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refused for exceeding the concurrent-stream limit, or after headers arrived for a stream that was
   already reset or that named itself as its priority dependency. Those streams are still rejected,
   and the connection stays usable.
+- An HTTP/2 connection could gradually stall, with every stream waiting on flow control, after
+  requests were canceled with response data still unread, handlers finished without reading a
+  request body, or the peer sent padded or late DATA frames. The window those bytes held is now
+  returned to the peer.
 
 ## [1.8.1] - 2026-11-05
 
