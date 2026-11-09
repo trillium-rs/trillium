@@ -112,14 +112,7 @@ where
         for (stream_id, increment) in stream_updates {
             self.queue_window_update(stream_id, increment);
         }
-        if connection_credit > 0 {
-            let increment = self
-                .connection_inflow
-                .add(i64::try_from(connection_credit).unwrap_or(i64::MAX));
-            if increment > 0 {
-                self.queue_window_update(0, u32::try_from(increment).unwrap_or(u32::MAX));
-            }
-        }
+        self.release_connection_window(i64::try_from(connection_credit).unwrap_or(i64::MAX));
         for stream_id in releases {
             log::trace!("h2 stream {stream_id}: application released held stream — removing");
             self.remove_from_stream_maps(stream_id);

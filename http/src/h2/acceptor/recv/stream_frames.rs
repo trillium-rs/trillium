@@ -1,8 +1,36 @@
 use super::super::{CloseOutcome, ClosedReason, H2Driver, MAX_FLOW_CONTROL_WINDOW, frame_slice};
-use crate::h2::{H2ErrorCode, frame::FRAME_HEADER_LEN, role::Role, stream_state::StreamEvent};
+use crate::h2::{
+    H2ErrorCode, frame::FRAME_HEADER_LEN, role::Role, stream_state::StreamEvent,
+    transport::StreamState,
+};
 use futures_lite::io::{AsyncRead, AsyncWrite};
+use std::sync::atomic::Ordering;
 
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> H2Driver<T> {
+    /// Re-grant `n` received bytes the driver no longer holds (consumed by a handler, or
+    /// discarded) to the peer's connection-level send window, batched by the
+    /// [`Inflow`][super::super::inflow::Inflow] hysteresis.
+    pub(in crate::h2::acceptor) fn release_connection_window(&mut self, n: i64) {
+        if n <= 0 {
+            return;
+        }
+        let increment = self.connection_inflow.add(n);
+        if increment > 0 {
+            self.queue_window_update(0, u32::try_from(increment).unwrap_or(u32::MAX));
+        }
+    }
+
+    /// Release the connection window a stream leaving the active map still holds: bytes buffered
+    /// but unread, plus bytes its handler consumed since the last service pass. Once the stream is
+    /// gone, nothing else accounts for either.
+    pub(in crate::h2::acceptor) fn release_stream_recv_window(&mut self, state: &StreamState) {
+        let held = {
+            let recv = state.recv.buf.lock().expect("recv buf mutex poisoned");
+            recv.len() as u64 + state.recv.bytes_consumed.swap(0, Ordering::AcqRel)
+        };
+        self.release_connection_window(i64::try_from(held).unwrap_or(i64::MAX));
+    }
+
     pub(super) fn handle_rst_stream(
         &mut self,
         stream_id: u32,
@@ -88,8 +116,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> H2Driver<T> {
                 // Idle — never opened; connection error.
                 Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError))
             } else {
-                // Closed — stream-level.
+                // Closed — stream-level. Nothing will read these bytes, so their connection
+                // window goes straight back.
                 self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
+                self.release_connection_window(flow_controlled);
                 Ok(())
             };
         }
@@ -124,6 +154,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> H2Driver<T> {
         // that is stream-level STREAM_CLOSED. Flow-control accounting above still applies.
         if state.lifecycle_lock().recv_closed() {
             self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
+            self.release_connection_window(flow_controlled);
             self.complete_and_remove_stream(
                 stream_id,
                 Err(std::io::Error::other("DATA after END_STREAM on h2 stream")),
@@ -133,6 +164,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> H2Driver<T> {
 
         if content_length_mismatch {
             self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
+            self.release_connection_window(flow_controlled);
             self.complete_and_remove_stream(
                 stream_id,
                 Err(std::io::Error::other("h2 content-length mismatch")),
@@ -160,6 +192,20 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> H2Driver<T> {
             if !data.is_empty() {
                 recv.extend_live(data);
             }
+        }
+        // Padding never reaches the ring, so no read will return its window.
+        let padding = flow_controlled - i64::from(data_length);
+        if padding > 0 {
+            if !end_stream && let Some(entry) = self.streams.get_mut(&stream_id) {
+                let increment = entry.stream_inflow.add(padding);
+                if increment > 0 {
+                    self.queue_window_update(
+                        stream_id,
+                        u32::try_from(increment).unwrap_or(u32::MAX),
+                    );
+                }
+            }
+            self.release_connection_window(padding);
         }
         // Transition recv-closed *after* the data is in the ring, so a reader that observes
         // recv-closed is guaranteed to see the buffered bytes first.
