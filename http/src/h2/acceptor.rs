@@ -53,7 +53,7 @@ use crate::{
     Conn, Priority,
     headers::hpack::{HpackDecoder, HpackEncoder},
 };
-use closed_streams::{ClosedReason, ClosedStreams};
+use closed_streams::{ClosedReason, ClosedStream, ClosedStreams};
 use constants::{
     INITIAL_CONNECTION_RECV_WINDOW, MAX_BUFFER_SIZE, MAX_DATA_CHUNK_SIZE, MAX_FLOW_CONTROL_WINDOW,
     READ_WINDOW,
@@ -585,14 +585,14 @@ where
         }
     }
 
-    /// Look up why a stream is closed. `None` means either never-opened or evicted from the
-    /// bounded ledger — both fall through to the connection-level default.
-    pub(super) fn closed_reason(&self, stream_id: u32) -> Option<ClosedReason> {
-        self.closed_streams.reason(stream_id)
+    /// Look up how a stream closed. `None` means either never-opened or evicted from the
+    /// bounded ledger.
+    pub(super) fn closed_stream(&self, stream_id: u32) -> Option<ClosedStream> {
+        self.closed_streams.get(stream_id)
     }
 
     /// Whether `stream_id` is still idle: never opened by the endpoint that initiates it.
-    /// Unlike [`Self::closed_reason`], this is exact for every id; it is derived from
+    /// Unlike [`Self::closed_stream`], this is exact for every id; it is derived from
     /// stream-id watermarks rather than the bounded ledger.
     pub(super) fn stream_is_idle(&self, stream_id: u32) -> bool {
         // Push is disabled, so even-numbered streams have no opening history in either role.

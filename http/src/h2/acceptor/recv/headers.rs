@@ -54,6 +54,8 @@ pub(super) enum HeaderBlockTarget {
     NewRequest,
     /// Reset the stream with this code once the block is decoded.
     Rejected(H2ErrorCode),
+    /// A stream we reset; the peer sent the block before seeing that. Decoded, then dropped.
+    Discard,
 }
 
 impl<T> H2Driver<T>
@@ -106,10 +108,12 @@ where
 
     /// Decide where a header block goes, or fail the connection.
     ///
-    /// A block for a stream that is absent but not idle arrived after the stream closed. A client
-    /// opened every such stream itself, so it rejects the block with stream-level `STREAM_CLOSED`.
-    /// A server splits three ways on the closed-streams ledger:
-    /// - Closed via `RST_STREAM` (either direction) → stream-level `STREAM_CLOSED`.
+    /// A block for a stream that is absent but not idle arrived after the stream closed. If our
+    /// reset is the latest on the stream, the peer may have sent the block before seeing it, so
+    /// it's discarded. Otherwise a client, which opened every such stream itself, rejects the
+    /// block with stream-level `STREAM_CLOSED`, and a server splits three ways on the
+    /// closed-streams ledger:
+    /// - Reset → stream-level `STREAM_CLOSED`.
     /// - Closed via `END_STREAM` on both sides → connection-level `STREAM_CLOSED`.
     /// - Never opened (implicitly closed by a higher-id HEADERS, or evicted from the bounded
     ///   ledger) → connection-level `PROTOCOL_ERROR` per the spec's "stream identifiers MUST be
@@ -121,7 +125,11 @@ where
     ) -> Result<HeaderBlockTarget, CloseOutcome> {
         let is_new_stream = !self.streams.contains_key(&stream_id);
         if is_new_stream && !self.stream_is_idle(stream_id) {
-            return match (self.role, self.closed_reason(stream_id)) {
+            let closed = self.closed_stream(stream_id);
+            return match (self.role, closed.map(|closed| closed.reason)) {
+                _ if closed.is_some_and(|closed| closed.ignore_late_frames) => {
+                    Ok(HeaderBlockTarget::Discard)
+                }
                 (Role::Client, _) | (Role::Server, Some(ClosedReason::Reset)) => {
                     Ok(HeaderBlockTarget::Rejected(H2ErrorCode::StreamClosed))
                 }
@@ -238,6 +246,7 @@ where
     /// HEADERS + CONTINUATION*). HPACK-decodes it — always, since even a rejected block may
     /// update the connection-wide dynamic table — then acts on its `target`:
     /// - **Rejected:** reset the stream, tearing it down if it was open.
+    /// - **Discard:** nothing beyond the decode.
     /// - **New request:** open the stream, validate the request via [`Conn::new_h2`], and emit the
     ///   [`Conn`] on success; on a malformed-request rejection, queue `RST_STREAM(PROTOCOL_ERROR)`
     ///   and drop the stream before a handler task ever sees it.
@@ -271,11 +280,17 @@ where
             }
         };
 
+        // A stream can only leave the map mid-block through a local reset, which discards the
+        // block just as a reset before its HEADERS frame would.
+        let target = match target {
+            HeaderBlockTarget::Existing if !self.streams.contains_key(&stream_id) => {
+                HeaderBlockTarget::Discard
+            }
+            target => target,
+        };
         match (target, decoded) {
-            // Reset or canceled locally between its HEADERS frame and END_HEADERS; the peer sent
-            // the block before it could know. Decoding was all it needed.
-            (HeaderBlockTarget::Existing, _) if !self.streams.contains_key(&stream_id) => {
-                log::trace!("h2 stream {stream_id}: dropping header block for a closed stream");
+            (HeaderBlockTarget::Discard, _) => {
+                log::trace!("h2 stream {stream_id}: dropping header block for a reset stream");
             }
             (HeaderBlockTarget::Rejected(code), _) | (_, Err(code)) => {
                 self.reject_header_block(stream_id, code);

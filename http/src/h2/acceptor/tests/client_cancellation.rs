@@ -102,7 +102,7 @@ fn late_frame_after_cancellation(late_frame: LateFrame, evict_closed_reason: boo
             assert!(fx.tick().is_pending());
             fx.next_outbound_frames();
         }
-        assert!(fx.driver.closed_reason(id).is_none());
+        assert!(fx.driver.closed_stream(id).is_none());
     }
 
     let (next_id, _next_transport) = open_get(&mut fx);
@@ -116,6 +116,44 @@ fn late_frame_after_cancellation(late_frame: LateFrame, evict_closed_reason: boo
         "{late_frame:?} on canceled stream closed the connection: {result:?}, {frames:?}"
     );
     assert_response_headers(&fx, next_id);
+    // While the ledger remembers our cancellation, the peer's in-flight frames are ignored.
+    if !evict_closed_reason {
+        assert!(
+            !frames.iter().any(
+                |frame| matches!(frame, Frame::RstStream { stream_id, .. } if *stream_id == id)
+            ),
+            "{late_frame:?} on canceled stream drew a reset: {frames:?}"
+        );
+    }
+}
+
+/// Past the ledger, a late frame draws one `RST_STREAM(STREAM_CLOSED)`; having sent that, later
+/// frames on the stream are ignored.
+#[test]
+fn late_frames_after_ledger_eviction_draw_a_single_reset() {
+    for late_frame in [LateFrame::Data, LateFrame::Headers] {
+        let mut fx = DriverFixture::new_client();
+        fx.complete_handshake_client();
+        let (id, transport) = open_get(&mut fx);
+        drop(transport);
+        for _ in 0..=ClosedStreams::CAP {
+            let (_, transport) = open_get(&mut fx);
+            drop(transport);
+            assert!(fx.tick().is_pending());
+        }
+        fx.next_outbound_frames();
+
+        late_frame.inject(&mut fx, id);
+        late_frame.inject(&mut fx, id);
+        let _ = fx.tick();
+        let frames = fx.next_outbound_frames();
+        let resets = frames
+            .iter()
+            .filter(|frame| matches!(frame, Frame::RstStream { stream_id, .. } if *stream_id == id))
+            .count();
+        assert_eq!(resets, 1, "{late_frame:?}: {frames:?}");
+        assert_eq!(fx.driver.state, DriverState::Running, "{late_frame:?}");
+    }
 }
 
 fn frame_on_unopened_stream(late_frame: LateFrame) {
@@ -274,5 +312,41 @@ fn allocated_but_unsent_client_stream_is_still_idle() {
             )),
             "{frame:?} on allocated but unsent stream: {frames:?}"
         );
+    }
+}
+
+/// Frames after the peer's own reset are its error, answered once; having answered, later frames
+/// are ignored. That holds when our own reset crossed the peer's, too.
+#[test]
+fn late_frames_after_peer_reset_draw_a_single_reset() {
+    for crossed in [false, true] {
+        for late_frame in [LateFrame::Data, LateFrame::Headers] {
+            let mut fx = DriverFixture::new_client();
+            fx.complete_handshake_client();
+            let (id, transport) = open_get(&mut fx);
+            let mut transport = Some(transport);
+            fx.peer_response_headers(id, Status::Ok, false);
+            assert!(fx.tick().is_pending());
+            if crossed {
+                drop(transport.take());
+                assert!(fx.tick().is_pending());
+            }
+            fx.peer_rst_stream(id, H2ErrorCode::Cancel);
+            assert!(fx.tick().is_pending());
+            fx.next_outbound_frames();
+
+            late_frame.inject(&mut fx, id);
+            late_frame.inject(&mut fx, id);
+            let _ = fx.tick();
+            let frames = fx.next_outbound_frames();
+            let resets = frames
+                .iter()
+                .filter(
+                    |frame| matches!(frame, Frame::RstStream { stream_id, .. } if *stream_id == id),
+                )
+                .count();
+            assert_eq!(resets, 1, "crossed={crossed} {late_frame:?}: {frames:?}");
+            assert_eq!(fx.driver.state, DriverState::Running);
+        }
     }
 }

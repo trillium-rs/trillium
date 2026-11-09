@@ -8,7 +8,7 @@
 //!
 //! All methods are on [`super::H2Driver`].
 
-use super::{ClosedReason, H2Driver};
+use super::H2Driver;
 use crate::h2::{H2ErrorCode, H2Settings, frame, role::Role, stream_state::StreamEvent};
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
@@ -126,9 +126,8 @@ where
                 frame::rst_stream::encode(stream_id, code, buf)
             });
         }
-        // So a later HEADERS on this id draws stream-level `STREAM_CLOSED` rather than a
-        // connection error.
-        self.closed_streams.record(stream_id, ClosedReason::Reset);
+        // Frames the peer sent before seeing this reset are then ignored rather than answered.
+        self.closed_streams.record_local_reset(stream_id);
         // Reflect the reset in the stream's protocol state at the single point we emit an
         // RST_STREAM, so every reset path (flow-control overflow, late DATA, send error, conn-task
         // request) leaves the stream terminal. A handler parked on — or about to poll — this stream
