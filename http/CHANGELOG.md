@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Canceling an HTTP/2 client request no longer closes the shared connection when late frames
+  arrive for that request. Canceling before the request is sent also leaves the connection usable.
+
 ## [1.8.1] - 2026-11-05
 
 This release contains only supporting content for `trillium-client`, exposed through the unstable

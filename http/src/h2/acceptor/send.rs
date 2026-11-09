@@ -315,7 +315,7 @@ where
         // A response stages a single leading HEADERS block, but interim (1xx) responses can stack
         // several; loop and re-check rather than assume exactly one.
         while matches!(cursor.parts.front(), Some(OutboundPart::Headers { .. })) {
-            if self.emit_response_headers_part(stream_id, &mut cursor) {
+            if self.emit_leading_headers_part(stream_id, &mut cursor) {
                 return; // finalized (bodyless): the entry is torn down or its send is complete
             }
         }
@@ -324,10 +324,11 @@ where
         }
     }
 
-    /// Emit one leading response HEADERS block off the front of the cursor (caller has confirmed
-    /// the front is `Headers`). Folds `END_STREAM` onto it when a bare `Close` immediately follows
-    /// (a bodyless response), finalizing the stream in that case. Returns `true` if it finalized.
-    fn emit_response_headers_part(&mut self, stream_id: u32, cursor: &mut SendCursor) -> bool {
+    /// Emit one leading HEADERS block (a response, or a client-role request) off the front of the
+    /// cursor (caller has confirmed the front is `Headers`). Folds `END_STREAM` onto it when a bare
+    /// `Close` immediately follows (no body), finalizing the stream in that case. Returns `true` if
+    /// it finalized.
+    fn emit_leading_headers_part(&mut self, stream_id: u32, cursor: &mut SendCursor) -> bool {
         let Some(OutboundPart::Headers { pseudos, headers }) = cursor.parts.pop_front() else {
             return false;
         };
@@ -336,6 +337,9 @@ where
             cursor.parts.pop_front();
         }
         self.emit_headers_block(stream_id, &FieldSection::new(pseudos, &headers), end_stream);
+        if self.role == Role::Client {
+            self.last_local_stream_id = self.last_local_stream_id.max(stream_id);
+        }
         // Release our share before completing the send: the conn task takes its headers back
         // as soon as it observes completion, and copies them if this share is still alive.
         drop(headers);
@@ -420,7 +424,7 @@ where
                     cursor
                         .parts
                         .push_front(OutboundPart::Headers { pseudos, headers });
-                    if self.emit_response_headers_part(stream_id, &mut cursor) {
+                    if self.emit_leading_headers_part(stream_id, &mut cursor) {
                         return DrainOutcome::Done;
                     }
                 }
