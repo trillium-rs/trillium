@@ -133,6 +133,10 @@ pub struct H2Driver<T> {
     /// must be odd and strictly increasing.
     last_peer_stream_id: u32,
 
+    /// Highest client request id whose opening HEADERS have been framed. Allocation alone
+    /// does not open a stream; canceled submissions can disappear before reaching the wire.
+    last_local_stream_id: u32,
+
     /// Latest RFC 9218 priority signaled per stream via `PRIORITY_UPDATE`, keyed by stream
     /// id. Holds entries for streams not yet opened too (an update can precede its HEADERS),
     /// so it is bounded by [`recv::MAX_TRACKED_PRIORITIES`] as a `DoS` guard. Latest signal
@@ -200,7 +204,7 @@ pub struct H2Driver<T> {
     connection_inflow: Inflow,
 
     /// Bounded ledger of recently-closed streams and why they closed. Consulted by
-    /// [`recv::H2Driver::finalize_headers`] when a HEADERS frame arrives on an id ≤
+    /// [`recv::H2Driver::handle_headers`] when a HEADERS frame arrives on an id ≤
     /// `last_peer_stream_id` that's not in the active map, to distinguish `RST_STREAM`-
     /// closed (stream-level `STREAM_CLOSED`) from `END_STREAM`-closed or never-opened
     /// (connection-level). See [`ClosedStreams`] for the eviction policy.
@@ -258,6 +262,7 @@ where
             hpack_encoder,
             streams: BTreeMap::new(),
             last_peer_stream_id: 0,
+            last_local_stream_id: 0,
             stream_priorities: HashMap::new(),
             send_schedule: Vec::new(),
             sending_streams: Vec::new(),
@@ -574,5 +579,20 @@ where
     /// bounded ledger — both fall through to the connection-level default.
     pub(super) fn closed_reason(&self, stream_id: u32) -> Option<ClosedReason> {
         self.closed_streams.reason(stream_id)
+    }
+
+    /// Whether `stream_id` is still idle: never opened by the endpoint that initiates it.
+    /// Unlike [`Self::closed_reason`], this is exact for every id; it is derived from
+    /// stream-id watermarks rather than the bounded ledger.
+    pub(super) fn stream_is_idle(&self, stream_id: u32) -> bool {
+        // Push is disabled, so even-numbered streams have no opening history in either role.
+        let last_opened = if stream_id.is_multiple_of(2) {
+            0
+        } else if self.role == Role::Client {
+            self.last_local_stream_id
+        } else {
+            self.last_peer_stream_id
+        };
+        stream_id > last_opened
     }
 }

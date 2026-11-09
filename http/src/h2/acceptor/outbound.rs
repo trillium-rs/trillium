@@ -9,7 +9,7 @@
 //! All methods are on [`super::H2Driver`].
 
 use super::{ClosedReason, H2Driver};
-use crate::h2::{H2ErrorCode, H2Settings, frame, stream_state::StreamEvent};
+use crate::h2::{H2ErrorCode, H2Settings, frame, role::Role, stream_state::StreamEvent};
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use std::{
     io,
@@ -114,12 +114,16 @@ where
     }
 
     pub(super) fn queue_rst_stream(&mut self, stream_id: u32, code: H2ErrorCode) {
-        log::trace!("h2 emit: RST_STREAM stream={stream_id} code={code:?}");
-        self.queue_frame(frame::rst_stream::ENCODED_LEN, |buf| {
-            frame::rst_stream::encode(stream_id, code, buf)
-        });
-        // Record in the ledger so subsequent frames the peer sends on this stream get
-        // stream-level `STREAM_CLOSED` rather than connection-level `PROTOCOL_ERROR`.
+        // A client stream canceled before its HEADERS were framed never opened, and the peer
+        // treats RST_STREAM on an idle stream as a connection error.
+        if self.role != Role::Client || !self.stream_is_idle(stream_id) {
+            log::trace!("h2 emit: RST_STREAM stream={stream_id} code={code:?}");
+            self.queue_frame(frame::rst_stream::ENCODED_LEN, |buf| {
+                frame::rst_stream::encode(stream_id, code, buf)
+            });
+        }
+        // So a later HEADERS on this id draws stream-level `STREAM_CLOSED` rather than a
+        // connection error.
         self.closed_streams.record(stream_id, ClosedReason::Reset);
         // Reflect the reset in the stream's protocol state at the single point we emit an
         // RST_STREAM, so every reset path (flow-control overflow, late DATA, send error, conn-task

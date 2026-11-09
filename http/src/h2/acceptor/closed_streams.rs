@@ -1,17 +1,17 @@
 //! Bounded ledger of recently-closed streams and how they closed.
 //!
-//! Consulted when a peer frame arrives on a stream id that's no longer in the active map to
-//! pick the right error category. See [`ClosedReason`].
+//! Consulted when HEADERS arrive on a stream id that's no longer in the active map, to pick the
+//! right error category. See [`ClosedReason`]. Whether a stream was ever opened comes from the
+//! driver's stream-id watermarks, not this ledger, so eviction never makes a closed stream look
+//! idle.
 
 use hashbrown::HashMap;
 use std::collections::VecDeque;
 
-/// Why a stream transitioned to the closed state — dictates the error category for any
-/// subsequent frame the peer sends on that stream id:
-/// - `Reset`: closed via `RST_STREAM` (either direction). Subsequent frames → stream-level
-///   `STREAM_CLOSED`.
-/// - `EndStream`: closed via `END_STREAM` on both sides. Subsequent frames (other than
-///   `WINDOW_UPDATE` / `PRIORITY` / `RST_STREAM`) → connection-level `STREAM_CLOSED`.
+/// Why a stream transitioned to the closed state — selects the error category for
+/// subsequent HEADERS on that stream id:
+/// - `Reset`: closed via `RST_STREAM` (either direction) → stream-level `STREAM_CLOSED`.
+/// - `EndStream`: closed via `END_STREAM` on both sides → connection-level `STREAM_CLOSED`.
 ///
 /// Streams that were never opened and are merely implicitly closed by a higher-id HEADERS
 /// don't appear in the ledger; the fall-through case there is connection-level
@@ -25,7 +25,7 @@ pub(in crate::h2) enum ClosedReason {
 /// Bounded FIFO of recently-closed streams and how they closed.
 ///
 /// Fixed cap — this is a correctness mechanism, not a concurrency-scaled structure. A
-/// well-behaved peer never sends frames on a stream it knows is closed; the ledger only
+/// well-behaved peer never sends HEADERS on a stream it knows is closed; the ledger only
 /// needs to span a handful of RTTs between our close and a misbehaving peer's stale
 /// frame. Oldest entries evict on overflow; evicted lookups fall through to the
 /// connection-level `PROTOCOL_ERROR` default.
@@ -36,7 +36,7 @@ pub(super) struct ClosedStreams {
 }
 
 impl ClosedStreams {
-    const CAP: usize = 128;
+    pub(super) const CAP: usize = 128;
 
     /// Record (or update) the close reason for `stream_id`. Idempotent on repeated calls
     /// for the same id; the most recent reason wins. A stream can be recorded as

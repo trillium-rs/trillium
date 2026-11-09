@@ -10,7 +10,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> H2Driver<T> {
     ) -> Result<(), CloseOutcome> {
         // `RST_STREAM` on an idle stream is a connection-level `PROTOCOL_ERROR`;
         // on a closed or active stream it's benign.
-        if stream_id > self.last_peer_stream_id && !self.streams.contains_key(&stream_id) {
+        if self.stream_is_idle(stream_id) && !self.streams.contains_key(&stream_id) {
             return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
         }
         if let Some(entry) = self.streams.get(&stream_id) {
@@ -48,9 +48,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> H2Driver<T> {
     /// skipped (they're in the buffer but not pushed).
     ///
     /// Stream-state errors:
-    /// - **Idle** (`stream_id` > `last_peer_stream_id`): DATA on an unopened stream is a
+    /// - **Idle** (never opened by its initiating endpoint): DATA on an unopened stream is a
     ///   connection-level `PROTOCOL_ERROR`.
-    /// - **Closed** (`stream_id` ≤ `last_peer_stream_id`, not in active map): stream-level
+    /// - **Closed** (opened, no longer in the active map): stream-level
     ///   `RST_STREAM(STREAM_CLOSED)`. Sent after-the-fact — peer has already written this frame and
     ///   we've already read it off the wire.
     /// - **Half-closed remote** (in map, lifecycle already recv-closed): same stream-level
@@ -84,7 +84,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> H2Driver<T> {
         }
 
         if !self.streams.contains_key(&stream_id) {
-            return if stream_id > self.last_peer_stream_id {
+            return if self.stream_is_idle(stream_id) {
                 // Idle — never opened; connection error.
                 Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError))
             } else {
@@ -186,8 +186,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> H2Driver<T> {
     /// - Connection window overflow → connection-level GOAWAY (via the returned error).
     /// - Stream window overflow → stream-level `RST_STREAM`, stream cleanup, connection continues.
     ///
-    /// A `WINDOW_UPDATE` on a stream we don't know is benign (the peer may send one after
-    /// the stream has closed): log and move on.
+    /// Updates on absent closed streams are benign; updates on idle streams are
+    /// connection-level `PROTOCOL_ERROR`.
     pub(super) fn apply_window_update(
         &mut self,
         stream_id: u32,
@@ -208,7 +208,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> H2Driver<T> {
             // WINDOW_UPDATE on an idle stream is a connection error. On a closed
             // stream it's benign (the peer may credit a just-closed stream before it
             // observed our END_STREAM).
-            if stream_id > self.last_peer_stream_id {
+            if self.stream_is_idle(stream_id) {
                 return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
             }
             log::trace!("WINDOW_UPDATE on closed stream {stream_id} — ignoring");
