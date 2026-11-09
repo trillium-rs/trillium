@@ -14,6 +14,7 @@ use std::{future::Future, pin::Pin, task::Context};
 #[derive(Clone, Copy, Debug)]
 enum LateFrame {
     Data,
+    Headers,
     Reset,
     WindowUpdate,
 }
@@ -22,13 +23,14 @@ impl LateFrame {
     fn inject(self, fx: &mut DriverFixture, id: u32) {
         match self {
             Self::Data => fx.peer_data(id, b"late", true),
+            Self::Headers => fx.peer_response_headers(id, Status::Ok, true),
             Self::Reset => fx.peer_rst_stream(id, H2ErrorCode::NoError),
             Self::WindowUpdate => fx.peer_window_update(id, 1),
         }
     }
 }
 
-fn open_get(fx: &mut DriverFixture) -> (u32, H2Transport) {
+pub(super) fn open_get(fx: &mut DriverFixture) -> (u32, H2Transport) {
     let pseudos = PseudoHeaders::default()
         .with_method(Method::Get)
         .with_path("/")
@@ -140,6 +142,11 @@ fn late_data_after_client_cancellation_keeps_connection_usable() {
 }
 
 #[test]
+fn late_headers_after_client_cancellation_keeps_connection_usable() {
+    late_frame_after_cancellation(LateFrame::Headers, false);
+}
+
+#[test]
 fn late_reset_after_client_cancellation_keeps_connection_usable() {
     late_frame_after_cancellation(LateFrame::Reset, false);
 }
@@ -155,6 +162,11 @@ fn data_on_unopened_client_stream_is_connection_error() {
 }
 
 #[test]
+fn headers_on_unopened_client_stream_is_connection_error() {
+    frame_on_unopened_stream(LateFrame::Headers);
+}
+
+#[test]
 fn reset_on_unopened_client_stream_is_connection_error() {
     frame_on_unopened_stream(LateFrame::Reset);
 }
@@ -166,14 +178,24 @@ fn window_update_on_unopened_client_stream_is_connection_error() {
 
 #[test]
 fn late_frames_after_close_ledger_eviction_keep_connection_usable() {
-    for frame in [LateFrame::Data, LateFrame::Reset, LateFrame::WindowUpdate] {
+    for frame in [
+        LateFrame::Data,
+        LateFrame::Headers,
+        LateFrame::Reset,
+        LateFrame::WindowUpdate,
+    ] {
         late_frame_after_cancellation(frame, true);
     }
 }
 
 #[test]
 fn even_and_future_stream_ids_remain_idle_after_opening_client_streams() {
-    for frame in [LateFrame::Data, LateFrame::Reset, LateFrame::WindowUpdate] {
+    for frame in [
+        LateFrame::Data,
+        LateFrame::Headers,
+        LateFrame::Reset,
+        LateFrame::WindowUpdate,
+    ] {
         for id in [2, 5] {
             let mut fx = DriverFixture::new_client();
             fx.complete_handshake_client();
@@ -230,7 +252,12 @@ fn cancellation_before_opening_sends_no_reset_and_next_request_works() {
 
 #[test]
 fn allocated_but_unsent_client_stream_is_still_idle() {
-    for frame in [LateFrame::Data, LateFrame::Reset, LateFrame::WindowUpdate] {
+    for frame in [
+        LateFrame::Data,
+        LateFrame::Headers,
+        LateFrame::Reset,
+        LateFrame::WindowUpdate,
+    ] {
         let mut fx = DriverFixture::new_client();
         fx.complete_handshake_client();
         let id = cancel_before_opening(&mut fx);
