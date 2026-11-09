@@ -90,6 +90,14 @@ where
         // re-queue our own GOAWAY and re-enter Closing, ping-ponging forever
         // with a peer that mirrors the behavior.
         if self.state == DriverState::Closing || self.state == DriverState::Drained {
+            // A connection error during a graceful close still owes the peer its error GOAWAY.
+            if let CloseOutcome::Protocol(code) = outcome
+                && !matches!(self.close_outcome, Some(CloseOutcome::Protocol(_)))
+            {
+                self.close_outcome = Some(outcome);
+                self.queue_goaway(self.last_peer_stream_id, code);
+                return;
+            }
             log::trace!(
                 "h2 driver: begin_close({outcome:?}) — already in {:?}, ignoring",
                 self.state,

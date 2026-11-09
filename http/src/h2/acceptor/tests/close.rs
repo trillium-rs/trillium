@@ -1,5 +1,11 @@
 use super::fixture::*;
-use crate::{Method, h2::H2ErrorCode};
+use crate::{
+    Method,
+    h2::{
+        H2Error, H2ErrorCode,
+        frame::{Frame, ping},
+    },
+};
 use futures_lite::io::AsyncRead;
 use std::{
     future::Future,
@@ -98,4 +104,99 @@ fn close_before_finishing_resets_streams_in_flight() {
 
     peer.shutdown(Shutdown::Write);
     assert!(close.as_mut().poll(&mut cx).is_ready());
+}
+
+/// A connection error ends frame processing. With a stream still in flight, a PING the peer sent
+/// after the offending frame goes unanswered, and the driver finishes with the error.
+#[test]
+fn connection_error_stops_frame_processing() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+    fx.peer_open_stream(1, Method::Post, "/", false);
+    let Poll::Ready(Some(Ok(_conn))) = fx.tick() else {
+        panic!("expected a Conn");
+    };
+    fx.next_outbound_frames();
+
+    // DATA on an idle stream is a connection error.
+    fx.peer_data(9, b"x", false);
+    let mut frame = [0; ping::ENCODED_LEN];
+    ping::encode([7; 8], false, &mut frame).expect("encode PING");
+    fx.peer.write_all(&frame);
+
+    let mut frames = Vec::new();
+    let mut finished = None;
+    for _ in 0..8 {
+        let polled = fx.tick();
+        frames.extend(fx.next_outbound_frames());
+        if let Poll::Ready(result) = polled {
+            finished = Some(result);
+            break;
+        }
+    }
+    assert!(
+        matches!(
+            finished,
+            Some(Some(Err(H2Error::Protocol(H2ErrorCode::ProtocolError))))
+        ),
+        "{finished:?}"
+    );
+    assert_eq!(count_goaways(&frames), 1, "{frames:?}");
+    assert!(
+        !frames
+            .iter()
+            .any(|frame| matches!(frame, Frame::Ping { ack: true, .. })),
+        "a frame after the connection error was processed: {frames:?}"
+    );
+}
+
+/// A connection error during a graceful close escalates it: the error GOAWAY follows the graceful
+/// one without raising its last-stream id, and the driver finishes with the error.
+#[test]
+fn connection_error_during_graceful_close_sends_error_goaway() {
+    let mut fx = DriverFixture::new_server();
+    fx.complete_handshake();
+    fx.peer_open_stream(1, Method::Post, "/", false);
+    let Poll::Ready(Some(Ok(_conn))) = fx.tick() else {
+        panic!("expected a Conn");
+    };
+    fx.peer_goaway(0, H2ErrorCode::NoError);
+    assert!(fx.tick().is_pending());
+    // A stream opened after our graceful GOAWAY must not raise the id in the error GOAWAY.
+    fx.peer_open_stream(3, Method::Get, "/", true);
+    fx.peer_data(9, b"x", false);
+
+    let mut frames = Vec::new();
+    let mut finished = None;
+    for _ in 0..8 {
+        let polled = fx.tick();
+        frames.extend(fx.next_outbound_frames());
+        if let Poll::Ready(result) = polled {
+            finished = Some(result);
+            break;
+        }
+    }
+    assert!(
+        matches!(
+            finished,
+            Some(Some(Err(H2Error::Protocol(H2ErrorCode::ProtocolError))))
+        ),
+        "{finished:?}"
+    );
+    let goaways: Vec<_> = frames
+        .iter()
+        .filter_map(|frame| match frame {
+            Frame::Goaway {
+                last_stream_id,
+                error_code,
+                ..
+            } => Some((*last_stream_id, *error_code)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        goaways,
+        [(1, H2ErrorCode::NoError), (1, H2ErrorCode::ProtocolError)],
+        "{frames:?}"
+    );
 }

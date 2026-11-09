@@ -107,6 +107,10 @@ where
     }
 
     pub(super) fn queue_goaway(&mut self, last_stream_id: u32, code: H2ErrorCode) {
+        let last_stream_id = self
+            .goaway_last_stream_id
+            .map_or(last_stream_id, |sent| sent.min(last_stream_id));
+        self.goaway_last_stream_id = Some(last_stream_id);
         log::trace!("h2 emit: GOAWAY last_stream_id={last_stream_id} code={code:?}");
         self.queue_frame(frame::goaway::encoded_len(0), |buf| {
             frame::goaway::encode(last_stream_id, code, &[], buf)

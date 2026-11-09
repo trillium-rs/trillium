@@ -137,6 +137,9 @@ pub struct H2Driver<T> {
     /// does not open a stream; canceled submissions can disappear before reaching the wire.
     last_local_stream_id: u32,
 
+    /// Last-stream id of the GOAWAY we sent, if any. A later GOAWAY may lower it, never raise it.
+    goaway_last_stream_id: Option<u32>,
+
     /// Latest RFC 9218 priority signaled per stream via `PRIORITY_UPDATE`, keyed by stream
     /// id. Holds entries for streams not yet opened too (an update can precede its HEADERS),
     /// so it is bounded by [`recv::MAX_TRACKED_PRIORITIES`] as a `DoS` guard. Latest signal
@@ -263,6 +266,7 @@ where
             streams: BTreeMap::new(),
             last_peer_stream_id: 0,
             last_local_stream_id: 0,
+            goaway_last_stream_id: None,
             stream_priorities: HashMap::new(),
             send_schedule: Vec::new(),
             sending_streams: Vec::new(),
@@ -362,34 +366,40 @@ where
                 Poll::Pending => return Poll::Pending,
             }
 
-            // 4. If we were closing, outbound is now drained. For graceful (or protocol-error)
-            //    shutdowns, transition to `Drained`, which reads whatever the peer has already sent
-            //    before finishing. For I/O-error shutdowns the transport is already untrustworthy,
-            //    so skip the drain. Defer the transition while in-flight streams still have
-            //    outbound (an active SendCursor or queued parts), an open send half (a handler that
-            //    hasn't submitted its response yet — half-closed-remote is *not* drained), OR
-            //    inbound (recv half not yet closed) work. Without this, a handler that submits
-            //    trailers *after* the cancellation race resolves gets stranded with bytes parked in
-            //    mailboxes; a handler that hasn't responded yet when shutdown begins has its
-            //    response `SubmitSend` orphaned by a driver that finished out from under it; and a
-            //    client receiving GOAWAY mid-stream stops decoding incoming frames before the
-            //    server's trailing HEADERS arrive. Falls through to step 6 so the recv pump (also
-            //    gated on Running|Closing now) keeps running and parks on the transport read waker
-            //    rather than the outbound-only `park` here.
+            // 4. If we were closing, outbound is now drained. For graceful shutdowns, transition to
+            //    `Drained`, which reads whatever the peer has already sent before finishing. A
+            //    connection error goes to `Drained` at once: its GOAWAY is out, in-flight streams
+            //    are reset at finish, and no further peer frames are processed. For I/O-error
+            //    shutdowns the transport is already untrustworthy, so skip the drain. Defer the
+            //    graceful transition while in-flight streams still have outbound (an active
+            //    SendCursor or queued parts), an open send half (a handler that hasn't submitted
+            //    its response yet — half-closed-remote is *not* drained), OR inbound (recv half not
+            //    yet closed) work. Without this, a handler that submits trailers *after* the
+            //    cancellation race resolves gets stranded with bytes parked in mailboxes; a handler
+            //    that hasn't responded yet when shutdown begins has its response `SubmitSend`
+            //    orphaned by a driver that finished out from under it; and a client receiving
+            //    GOAWAY mid-stream stops decoding incoming frames before the server's trailing
+            //    HEADERS arrive. Falls through to step 6 so the recv pump (also gated on
+            //    Running|Closing now) keeps running and parks on the transport read waker rather
+            //    than the outbound-only `park` here.
             if self.state == DriverState::Closing {
-                if matches!(self.close_outcome, Some(CloseOutcome::Io(_))) {
-                    return Poll::Ready(self.finish_with_current_outcome());
-                }
-                if self.has_active_send_cursors()
-                    || self.has_open_send_half()
-                    || self.has_pending_recv()
-                {
-                    self.log_closing_blockers();
-                } else {
-                    self.set_state(
+                match self.close_outcome {
+                    Some(CloseOutcome::Io(_)) => {
+                        return Poll::Ready(self.finish_with_current_outcome());
+                    }
+                    Some(CloseOutcome::Protocol(_)) => {
+                        self.set_state(DriverState::Drained, "connection error, GOAWAY flushed");
+                    }
+                    _ if self.has_active_send_cursors()
+                        || self.has_open_send_half()
+                        || self.has_pending_recv() =>
+                    {
+                        self.log_closing_blockers();
+                    }
+                    _ => self.set_state(
                         DriverState::Drained,
                         "outbound drained, no in-flight streams",
-                    );
+                    ),
                 }
             }
 
@@ -469,13 +479,13 @@ where
                         self.begin_close(outcome);
                     }
                     // Protocol errors need a GOAWAY on the wire before we terminate;
-                    // `begin_close` queues that and transitions us to Closing so the next
-                    // outer-loop iteration drains the frame. Io errors short-circuit:
-                    // if we're already Closing, the transport is gone, so finish without
-                    // looping forever waiting for in-flight streams (`has_pending_recv`
+                    // `begin_close` queues that — escalating a graceful close already in
+                    // progress — so the next outer-loop iteration flushes it. Io errors
+                    // short-circuit: if we're already Closing, the transport is gone, so finish
+                    // without looping forever waiting for in-flight streams (`has_pending_recv`
                     // can't decide on its own that the peer is never sending again).
                     Poll::Ready(Err(e)) => {
-                        if self.state == DriverState::Closing {
+                        if self.state == DriverState::Closing && matches!(e, CloseOutcome::Io(_)) {
                             self.close_outcome.get_or_insert(e);
                             return Poll::Ready(self.finish_with_current_outcome());
                         }

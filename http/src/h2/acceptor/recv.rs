@@ -84,9 +84,10 @@ where
                 return Poll::Ready(Err(CloseOutcome::Protocol(H2ErrorCode::FrameSizeError)));
             }
         };
-        let action = self.dispatch(frame, consumed, total)?;
+        let action = self.dispatch(frame, consumed, total);
+        // Consumed even when dispatch fails, so no path can dispatch a frame twice.
         self.consume_read(total);
-        Poll::Ready(Ok(action))
+        Poll::Ready(action)
     }
 
     /// Read the 24-byte client connection preface and validate it. Reads through `read_buf`, so
