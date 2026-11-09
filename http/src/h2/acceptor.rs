@@ -204,7 +204,7 @@ pub struct H2Driver<T> {
     connection_inflow: Inflow,
 
     /// Bounded ledger of recently-closed streams and why they closed. Consulted by
-    /// [`recv::H2Driver::handle_headers`] when a HEADERS frame arrives on an id ≤
+    /// [`recv::H2Driver::classify_header_block`] when a HEADERS frame arrives on an id ≤
     /// `last_peer_stream_id` that's not in the active map, to distinguish `RST_STREAM`-
     /// closed (stream-level `STREAM_CLOSED`) from `END_STREAM`-closed or never-opened
     /// (connection-level). See [`ClosedStreams`] for the eviction policy.

@@ -1,8 +1,10 @@
 //! HEADERS + CONTINUATION block accumulation and finalization.
 //!
 //! `handle_headers` and `handle_continuation` are the per-frame entry points called from the
-//! parent `recv::dispatch`. Once `END_HEADERS` is observed, [`Self::finalize_headers`]
-//! HPACK-decodes the assembled block and branches by stream state + role:
+//! parent `recv::dispatch`. The HEADERS frame decides where the block goes; once `END_HEADERS` is
+//! observed, [`Self::finalize_headers`] HPACK-decodes the assembled block and acts on that:
+//! - **Rejected** (late, refused, or self-dependent stream) → decoded for its HPACK side effects,
+//!   then the stream is reset.
 //! - **New peer-initiated stream (server role)** → [`Self::finalize_new_request_stream`] opens the
 //!   stream, validates the request, and emits a [`Conn`] for the handler task.
 //! - **Existing stream, client role, no first response yet** → [`Self::finalize_response_headers`]
@@ -38,19 +40,29 @@ use std::{
 pub(in crate::h2::acceptor) struct PendingHeaders {
     pub(super) stream_id: u32,
     pub(super) end_stream: bool,
+    pub(super) target: HeaderBlockTarget,
     pub(super) assembled: Vec<u8>,
+}
+
+/// Where a header block goes. Decided when its HEADERS frame arrives: stream-state transitions
+/// belong to the HEADERS frame, and its CONTINUATION frames are part of it.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum HeaderBlockTarget {
+    /// An open stream: the response (client role) or trailers.
+    Existing,
+    /// A new peer-initiated stream (server role).
+    NewRequest,
+    /// Reset the stream with this code once the block is decoded.
+    Rejected(H2ErrorCode),
 }
 
 impl<T> H2Driver<T>
 where
     T: AsyncRead + AsyncWrite + Unpin + Send,
 {
-    /// A HEADERS frame arrived. Either `END_HEADERS` is set (emit the stream immediately) or
-    /// we accumulate the fragment into `pending_headers` and wait for CONTINUATION.
-    ///
-    /// A HEADERS frame on an *existing* stream is trailers. Accumulation is identical to an
-    /// initial HEADERS block; the branch between "initial request HEADERS" and "trailers"
-    /// happens in [`Self::finalize_headers`] against the current streams map.
+    /// A HEADERS frame arrived. Classify the block it begins, then either finalize it
+    /// (`END_HEADERS` set) or accumulate the fragment into `pending_headers` and wait for
+    /// CONTINUATION.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn handle_headers(
         &mut self,
@@ -62,62 +74,11 @@ where
         payload_start: usize,
         total: usize,
     ) -> Result<Action, CloseOutcome> {
-        // A peer-initiated stream id must be odd.
+        // Push is disabled, so HEADERS can only name a client-initiated (odd) stream.
         if stream_id.is_multiple_of(2) {
             return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
         }
-        // Trailer HEADERS on an existing stream: must be strictly equal to a known id.
-        // New-stream HEADERS: strictly greater than `last_peer_stream_id`. A lower id
-        // that is no longer active splits three ways:
-        // - Closed via `RST_STREAM` (either direction) → stream-level `STREAM_CLOSED`. Ledger
-        //   lookup returns `ClosedReason::Reset`.
-        // - Closed via `END_STREAM` on both sides → connection-level `STREAM_CLOSED`. Ledger lookup
-        //   returns `ClosedReason::EndStream`.
-        // - Never opened (implicitly closed by a higher-id HEADERS, or evicted from the bounded
-        //   ledger) → connection-level `PROTOCOL_ERROR` per the spec's "stream identifiers MUST be
-        //   numerically greater than all streams the initiating endpoint has opened".
-        let is_new_stream = !self.streams.contains_key(&stream_id);
-        if is_new_stream && stream_id <= self.last_peer_stream_id {
-            match self.closed_reason(stream_id) {
-                Some(ClosedReason::Reset) => {
-                    self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
-                    return Ok(Action::Continue);
-                }
-                Some(ClosedReason::EndStream) => {
-                    return Err(CloseOutcome::Protocol(H2ErrorCode::StreamClosed));
-                }
-                None => {
-                    return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
-                }
-            }
-        }
-
-        // A stream cannot depend on itself. Stream-level PROTOCOL_ERROR — the connection
-        // stays alive; just RST this stream and advance past it.
-        if let Some(p) = priority
-            && p.stream_dependency == stream_id
-        {
-            log::debug!("h2 stream {stream_id}: HEADERS depends on itself; RST_STREAM");
-            self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
-            // Advance `last_peer_stream_id` so the peer can't reuse this id.
-            if is_new_stream {
-                self.last_peer_stream_id = stream_id;
-            }
-            return Ok(Action::Continue);
-        }
-
-        // Peer-initiated streams beyond our advertised `SETTINGS_MAX_CONCURRENT_STREAMS`
-        // get `RST_STREAM(RefusedStream)`. The identifier is still "consumed" ("The
-        // identifier of a refused stream is not reused") so bump `last_peer_stream_id`.
-        let max_concurrent = self.config.max_concurrent_streams() as usize;
-        if is_new_stream && self.streams.len() >= max_concurrent {
-            log::debug!(
-                "h2 stream {stream_id}: concurrent stream limit reached ({max_concurrent})"
-            );
-            self.queue_rst_stream(stream_id, H2ErrorCode::RefusedStream);
-            self.last_peer_stream_id = stream_id;
-            return Ok(Action::Continue);
-        }
+        let target = self.classify_header_block(stream_id, priority)?;
 
         let fragment = frame_slice(
             &self.read_buf[self.read_start..],
@@ -128,7 +89,7 @@ where
 
         if end_headers {
             let block = fragment.to_vec();
-            self.finalize_headers(stream_id, end_stream, &block)
+            self.finalize_headers(stream_id, end_stream, target, &block)
         } else {
             if fragment.len() as u64 > self.config.max_header_list_size() {
                 return Err(CloseOutcome::Protocol(H2ErrorCode::EnhanceYourCalm));
@@ -136,9 +97,95 @@ where
             self.pending_headers = Some(PendingHeaders {
                 stream_id,
                 end_stream,
+                target,
                 assembled: fragment.to_vec(),
             });
             Ok(Action::Continue)
+        }
+    }
+
+    /// Decide where a header block goes, or fail the connection.
+    ///
+    /// A block for a stream that is absent but not idle arrived after the stream closed. A client
+    /// opened every such stream itself, so it rejects the block with stream-level `STREAM_CLOSED`.
+    /// A server splits three ways on the closed-streams ledger:
+    /// - Closed via `RST_STREAM` (either direction) → stream-level `STREAM_CLOSED`.
+    /// - Closed via `END_STREAM` on both sides → connection-level `STREAM_CLOSED`.
+    /// - Never opened (implicitly closed by a higher-id HEADERS, or evicted from the bounded
+    ///   ledger) → connection-level `PROTOCOL_ERROR` per the spec's "stream identifiers MUST be
+    ///   numerically greater than all streams the initiating endpoint has opened".
+    fn classify_header_block(
+        &mut self,
+        stream_id: u32,
+        priority: Option<PriorityInfo>,
+    ) -> Result<HeaderBlockTarget, CloseOutcome> {
+        let is_new_stream = !self.streams.contains_key(&stream_id);
+        if is_new_stream && !self.stream_is_idle(stream_id) {
+            return match (self.role, self.closed_reason(stream_id)) {
+                (Role::Client, _) | (Role::Server, Some(ClosedReason::Reset)) => {
+                    Ok(HeaderBlockTarget::Rejected(H2ErrorCode::StreamClosed))
+                }
+                (Role::Server, Some(ClosedReason::EndStream)) => {
+                    Err(CloseOutcome::Protocol(H2ErrorCode::StreamClosed))
+                }
+                (Role::Server, None) => Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError)),
+            };
+        }
+        // Servers never open odd streams, so an idle one is never legitimately named to a client.
+        if is_new_stream && self.role == Role::Client {
+            return Err(CloseOutcome::Protocol(H2ErrorCode::ProtocolError));
+        }
+
+        // A stream cannot depend on itself. Stream-level PROTOCOL_ERROR — the connection
+        // stays alive; just RST this stream and advance past it.
+        if priority.is_some_and(|p| p.stream_dependency == stream_id) {
+            log::debug!("h2 stream {stream_id}: HEADERS depends on itself; RST_STREAM");
+            // Advance `last_peer_stream_id` so the peer can't reuse this id.
+            if is_new_stream {
+                self.last_peer_stream_id = stream_id;
+            }
+            return Ok(HeaderBlockTarget::Rejected(H2ErrorCode::ProtocolError));
+        }
+
+        if is_new_stream {
+            // Peer-initiated streams beyond our advertised `SETTINGS_MAX_CONCURRENT_STREAMS`
+            // get `RST_STREAM(RefusedStream)`. The identifier is still "consumed" ("The
+            // identifier of a refused stream is not reused") so bump `last_peer_stream_id`.
+            let max_concurrent = self.config.max_concurrent_streams() as usize;
+            if self.streams.len() >= max_concurrent {
+                log::debug!(
+                    "h2 stream {stream_id}: concurrent stream limit reached ({max_concurrent})"
+                );
+                self.last_peer_stream_id = stream_id;
+                return Ok(HeaderBlockTarget::Rejected(H2ErrorCode::RefusedStream));
+            }
+            return Ok(HeaderBlockTarget::NewRequest);
+        }
+
+        // Half-closed (remote): once we've observed the peer's `END_STREAM`, any further HEADERS
+        // on that stream is a stream-level `STREAM_CLOSED`. Trailers arrive while the stream is
+        // still recv-open and close it as part of their own transition, so this picks out "second
+        // HEADERS after recv-close", not the trailer itself. Role-agnostic: applies to server
+        // (peer-sent EOS) and client (peer-sent response EOS) alike.
+        if self.streams[&stream_id]
+            .shared
+            .lifecycle_lock()
+            .recv_closed()
+        {
+            log::debug!("h2 stream {stream_id}: HEADERS on half-closed-remote stream");
+            return Ok(HeaderBlockTarget::Rejected(H2ErrorCode::StreamClosed));
+        }
+        Ok(HeaderBlockTarget::Existing)
+    }
+
+    /// Reset a stream whose header block was rejected, tearing it down if it was open.
+    fn reject_header_block(&mut self, stream_id: u32, code: H2ErrorCode) {
+        self.queue_rst_stream(stream_id, code);
+        if self.streams.contains_key(&stream_id) {
+            self.complete_and_remove_stream(
+                stream_id,
+                Err(Error::other(format!("h2 header block rejected: {code:?}"))),
+            );
         }
     }
 
@@ -178,23 +225,25 @@ where
             let PendingHeaders {
                 stream_id,
                 end_stream,
+                target,
                 assembled,
             } = self.pending_headers.take().expect("checked above");
-            self.finalize_headers(stream_id, end_stream, &assembled)
+            self.finalize_headers(stream_id, end_stream, target, &assembled)
         } else {
             Ok(Action::Continue)
         }
     }
 
     /// The complete header block is now available (whether from a single HEADERS or from
-    /// HEADERS + CONTINUATION*). Branches on whether the stream is already open:
-    /// - **New stream:** HPACK-decode, open the stream, validate the request via [`Conn::new_h2`],
-    ///   emit the [`Conn`] on success; on a malformed-request rejection, queue
-    ///   `RST_STREAM(PROTOCOL_ERROR)` and drop the stream before a handler task ever sees it.
-    /// - **Existing stream (trailers):** HPACK-decode, validate `END_STREAM` is set and no
-    ///   pseudo-headers present, stash on `StreamState.recv.trailers`, then signal EOF. A
-    ///   stream-level violation queues `RST_STREAM(PROTOCOL_ERROR)` on the offending stream and
-    ///   leaves the connection open.
+    /// HEADERS + CONTINUATION*). HPACK-decodes it — always, since even a rejected block may
+    /// update the connection-wide dynamic table — then acts on its `target`:
+    /// - **Rejected:** reset the stream, tearing it down if it was open.
+    /// - **New request:** open the stream, validate the request via [`Conn::new_h2`], and emit the
+    ///   [`Conn`] on success; on a malformed-request rejection, queue `RST_STREAM(PROTOCOL_ERROR)`
+    ///   and drop the stream before a handler task ever sees it.
+    /// - **Existing stream:** the response HEADERS (client role) or trailers. A trailer violation
+    ///   queues `RST_STREAM(PROTOCOL_ERROR)` on the offending stream and leaves the connection
+    ///   open.
     ///
     /// HPACK decode failures split by variant: wire-format compression errors are
     /// connection-level (dynamic table now untrusted for every future stream — bubble up as
@@ -204,10 +253,11 @@ where
         &mut self,
         stream_id: u32,
         end_stream: bool,
+        target: HeaderBlockTarget,
         block: &[u8],
     ) -> Result<Action, CloseOutcome> {
-        let field_section = match self.hpack.decode(block) {
-            Ok(fs) => fs,
+        let decoded = match self.hpack.decode(block) {
+            Ok(field_section) => Ok(field_section),
             Err(HpackDecodeError::Compression(e)) => {
                 let h2err: H2Error = e.into();
                 return Err(match h2err {
@@ -217,81 +267,61 @@ where
             }
             Err(HpackDecodeError::MalformedRequest(reason)) => {
                 log::debug!("h2 stream {stream_id}: malformed request headers: {reason:?}");
-                // Stream-level. Pre-stream-open: just RST; post-open (trailer path):
-                // drive through the completion helper to clean up send state if any.
-                if self.streams.contains_key(&stream_id) {
-                    self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
-                    self.complete_and_remove_stream(
-                        stream_id,
-                        Err(Error::other("malformed h2 request trailer header block")),
-                    );
-                } else {
-                    self.queue_rst_stream(stream_id, H2ErrorCode::ProtocolError);
-                }
-                return Ok(Action::Continue);
+                Err(H2ErrorCode::ProtocolError)
             }
         };
 
-        if let Some(entry) = self.streams.get(&stream_id) {
-            // Half-closed (remote): once we've observed the peer's `END_STREAM`, any
-            // further HEADERS on that stream is a stream-level `STREAM_CLOSED`. The lifecycle is
-            // recv-closed here because a prior DATA(END_STREAM) or trailer HEADERS
-            // transitioned it — trailers themselves arrive while the stream is still
-            // recv-open and close it as part of their own transition, so this check picks
-            // out "second HEADERS after recv-close", not the trailer itself. Role-agnostic:
-            // applies symmetrically to server (peer-sent EOS) and client (peer-sent
-            // response EOS).
-            if entry.shared.lifecycle_lock().recv_closed() {
-                log::debug!("h2 stream {stream_id}: HEADERS on half-closed-remote stream");
-                self.queue_rst_stream(stream_id, H2ErrorCode::StreamClosed);
-                self.complete_and_remove_stream(
-                    stream_id,
-                    Err(Error::other("HEADERS on half-closed-remote h2 stream")),
-                );
-                return Ok(Action::Continue);
+        match (target, decoded) {
+            // Reset or canceled locally between its HEADERS frame and END_HEADERS; the peer sent
+            // the block before it could know. Decoding was all it needed.
+            (HeaderBlockTarget::Existing, _) if !self.streams.contains_key(&stream_id) => {
+                log::trace!("h2 stream {stream_id}: dropping header block for a closed stream");
             }
-            // Role-asymmetric: server treats HEADERS-on-known as trailers; client first
-            // arrival is the response headers, subsequent arrival is trailers. We
-            // distinguish by whether the response_headers slot has already been populated.
-            match self.role {
-                Role::Server => self.finalize_trailers(stream_id, end_stream, field_section),
-                Role::Client => {
-                    // Latching flag, not slot occupancy: the conn task drains
-                    // `response_headers` when it consumes them, so the slot would falsely
-                    // read empty for a trailing-HEADERS arriving after the conn task has
-                    // taken the response.
-                    let already_have_response = entry
-                        .shared
-                        .recv
-                        .first_response_headers_seen
-                        .load(Ordering::Acquire);
-                    if already_have_response {
-                        // Second HEADERS arrival on a client-initiated stream is the
-                        // trailing HEADERS — same constraints as the server-side trailer
-                        // path (no pseudos, MUST carry END_STREAM).
-                        self.finalize_trailers(stream_id, end_stream, field_section);
-                    } else {
-                        self.finalize_response_headers(stream_id, end_stream, field_section);
-                    }
+            (HeaderBlockTarget::Rejected(code), _) | (_, Err(code)) => {
+                self.reject_header_block(stream_id, code);
+            }
+            (HeaderBlockTarget::NewRequest, Ok(field_section)) => {
+                return Ok(self.finalize_new_request_stream(stream_id, end_stream, field_section));
+            }
+            (HeaderBlockTarget::Existing, Ok(field_section)) => {
+                self.finalize_existing_stream_headers(stream_id, end_stream, field_section);
+            }
+        }
+        Ok(Action::Continue)
+    }
+
+    /// HEADERS on an open stream. Role-asymmetric: a server treats it as trailers; a client's
+    /// first arrival is the response headers and any later one is trailers.
+    fn finalize_existing_stream_headers(
+        &mut self,
+        stream_id: u32,
+        end_stream: bool,
+        field_section: crate::headers::hpack::FieldSection<'static>,
+    ) {
+        match self.role {
+            Role::Server => self.finalize_trailers(stream_id, end_stream, field_section),
+            Role::Client => {
+                // Latching flag, not slot occupancy: the conn task drains `response_headers` when
+                // it consumes them, so the slot would falsely read empty for a trailing-HEADERS
+                // arriving after the conn task has taken the response.
+                let already_have_response = self
+                    .streams
+                    .get(&stream_id)
+                    .expect("caller verified stream is present")
+                    .shared
+                    .recv
+                    .first_response_headers_seen
+                    .load(Ordering::Acquire);
+                if already_have_response {
+                    // Second HEADERS arrival on a client-initiated stream is the trailing
+                    // HEADERS — same constraints as the server-side trailer path (no pseudos,
+                    // MUST carry END_STREAM).
+                    self.finalize_trailers(stream_id, end_stream, field_section);
+                } else {
+                    self.finalize_response_headers(stream_id, end_stream, field_section);
                 }
             }
-            return Ok(Action::Continue);
         }
-
-        // Role-asymmetric: server opens a new request stream; client would see this only
-        // as a server-initiated push. We don't enable PUSH in our advertised SETTINGS, so
-        // a peer-initiated even-id HEADERS would be a protocol violation; an odd-id HEADERS
-        // we don't have means we already declared this id wasn't valid. Either way, refuse.
-        Ok(match self.role {
-            Role::Server => self.finalize_new_request_stream(stream_id, end_stream, field_section),
-            Role::Client => {
-                log::debug!(
-                    "h2 client: HEADERS on unknown stream {stream_id} — refusing (push disabled)"
-                );
-                self.queue_rst_stream(stream_id, H2ErrorCode::RefusedStream);
-                Action::Continue
-            }
-        })
     }
 
     /// Client-role: first HEADERS arrival on a client-initiated stream is the response

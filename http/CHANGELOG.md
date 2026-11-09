@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Canceling an HTTP/2 client request no longer closes the shared connection when late frames
   arrive for that request. Canceling before the request is sent also leaves the connection usable.
+- An HTTP/2 connection could fail every later request with a compression error after a stream was
+  refused for exceeding the concurrent-stream limit, or after headers arrived for a stream that was
+  already reset or that named itself as its priority dependency. Those streams are still rejected,
+  and the connection stays usable.
 
 ## [1.8.1] - 2026-11-05
 
