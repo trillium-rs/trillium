@@ -108,8 +108,13 @@ impl SendCursor {
     /// The in-progress body has drained. Drop it, and if it carried trailers, splice them in as the
     /// terminator (replacing a trailing bare `Close`), so a body's `grpc-status`-style trailers
     /// frame as trailing HEADERS rather than an empty `DATA(END_STREAM)`.
-    fn drain_body_into_trailers(&mut self) {
-        let trailers = self.body.as_mut().and_then(H2Body::trailers);
+    fn drain_body_into_trailers(&mut self) -> io::Result<()> {
+        let trailers = self
+            .body
+            .as_mut()
+            .map(H2Body::trailers)
+            .transpose()?
+            .flatten();
         self.body = None;
         if let Some(trailers) = trailers {
             if matches!(self.parts.front(), Some(OutboundPart::Close)) {
@@ -117,6 +122,7 @@ impl SendCursor {
             }
             self.parts.push_front(OutboundPart::Trailers(trailers));
         }
+        Ok(())
     }
 }
 
@@ -426,7 +432,7 @@ where
                 OutboundPart::Body(body) => {
                     cursor.body_declared_len = body.len();
                     cursor.body_emitted = 0;
-                    cursor.body = Some(body.into_h2());
+                    cursor.body = Some(body);
                 }
                 OutboundPart::Trailers(trailers) => {
                     self.emit_headers_block(
@@ -508,7 +514,7 @@ where
         // a stream whose window just barely sufficed without waiting on a superfluous
         // WINDOW_UPDATE.
         if cursor.body_declared_len == Some(cursor.body_emitted) {
-            cursor.drain_body_into_trailers();
+            cursor.drain_body_into_trailers()?;
             return Poll::Ready(Ok(true));
         }
 
@@ -560,7 +566,7 @@ where
                     ),
                 )));
             }
-            cursor.drain_body_into_trailers();
+            cursor.drain_body_into_trailers()?;
             return Poll::Ready(Ok(true));
         }
 
@@ -590,7 +596,7 @@ where
         // If the declared length is now satisfied, transition within this call so the loop frames
         // the terminator instead of parking for a WINDOW_UPDATE that won't come.
         if cursor.body_declared_len == Some(cursor.body_emitted) {
-            cursor.drain_body_into_trailers();
+            cursor.drain_body_into_trailers()?;
             return Poll::Ready(Ok(true));
         }
         Poll::Ready(Ok(false))

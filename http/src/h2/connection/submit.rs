@@ -324,6 +324,6 @@ fn submission_parts(
     close: bool,
 ) -> impl Iterator<Item = OutboundPart> {
     std::iter::once(OutboundPart::Headers { pseudos, headers })
-        .chain(body.map(OutboundPart::Body))
+        .chain(body.map(|body| OutboundPart::Body(body.into_h2())))
         .chain(close.then_some(OutboundPart::Close))
 }

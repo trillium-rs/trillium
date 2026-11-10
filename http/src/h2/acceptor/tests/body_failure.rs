@@ -5,7 +5,7 @@
 
 use super::fixture::*;
 use crate::{
-    Body, Headers, Method, Status,
+    Body, BodySource, Headers, Method, Status,
     h2::{H2ErrorCode, SubmitSend, frame::Frame, transport::StreamState},
     headers::hpack::PseudoHeaders,
 };
@@ -246,4 +246,146 @@ fn closed_streams_are_not_reset_again() {
             "{teardown:?}"
         );
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PanicAt {
+    Read,
+    Trailers,
+    Drop,
+    ReadAndDrop,
+}
+
+/// Yields `partial`, then EOF — panicking instead wherever `at` says.
+struct Panicking {
+    at: PanicAt,
+    sent: bool,
+}
+
+impl Panicking {
+    fn body(at: PanicAt) -> Body {
+        Body::new_with_trailers(Self { at, sent: false }, None)
+    }
+}
+
+impl AsyncRead for Panicking {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<io::Result<usize>> {
+        if !self.sent {
+            self.sent = true;
+            buf[..7].copy_from_slice(b"partial");
+            return Poll::Ready(Ok(7));
+        }
+        assert!(
+            !matches!(self.at, PanicAt::Read | PanicAt::ReadAndDrop),
+            "body source panicked in poll_read"
+        );
+        Poll::Ready(Ok(0))
+    }
+}
+
+impl BodySource for Panicking {
+    fn trailers(self: Pin<&mut Self>) -> Option<Headers> {
+        assert_ne!(
+            self.at,
+            PanicAt::Trailers,
+            "body source panicked in trailers"
+        );
+        None
+    }
+}
+
+impl Drop for Panicking {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            assert!(
+                !matches!(self.at, PanicAt::Drop | PanicAt::ReadAndDrop),
+                "body source panicked in drop"
+            );
+        }
+    }
+}
+
+/// After a body panic, the connection still serves another stream end to end.
+fn assert_connection_still_serves(fx: &mut DriverFixture, context: PanicAt) {
+    fx.peer_open_stream(3, Method::Get, "/", true);
+    let Poll::Ready(Some(Ok(_conn))) = fx.tick() else {
+        panic!("{context:?}: the driver stopped accepting streams");
+    };
+    let pseudos = PseudoHeaders::default().with_status(Status::Ok);
+    let _submit = fx.connection.submit_send(
+        3,
+        pseudos,
+        Headers::new(),
+        Some(ThenEnds::body(b"ok", None, None)),
+    );
+    let frames = settle(fx);
+    assert!(
+        frames.iter().any(|frame| matches!(
+            frame,
+            Frame::Data {
+                stream_id: 3,
+                end_stream: true,
+                ..
+            }
+        )),
+        "{context:?}: the next response didn't complete: {frames:?}"
+    );
+    assert_eq!(resets_on(&frames, 3), [], "{context:?}: {frames:?}");
+}
+
+/// A body source that panics resets its own stream, or — panicking only in its drop, after it
+/// was fully sent — none at all. Either way the driver keeps serving the connection's other
+/// streams.
+#[test]
+fn body_panics_cost_only_their_stream() {
+    for at in [
+        PanicAt::Read,
+        PanicAt::Trailers,
+        PanicAt::Drop,
+        PanicAt::ReadAndDrop,
+    ] {
+        let (mut fx, mut submit, frames) = respond_with(Panicking::body(at));
+        if at == PanicAt::Drop {
+            assert_eq!(resets_on(&frames, 1), [], "{at:?}: {frames:?}");
+            let waker = noop_waker();
+            let mut cx = Context::from_waker(&waker);
+            assert!(
+                matches!(Pin::new(&mut submit).poll(&mut cx), Poll::Ready(Ok(()))),
+                "{at:?}"
+            );
+        } else {
+            assert_reset_without_end_stream(&fx, 1, &mut submit, &frames);
+        }
+        assert_connection_still_serves(&mut fx, at);
+    }
+}
+
+/// A panicking client request body resets its own stream; the connection's next request still
+/// goes out.
+#[test]
+fn request_body_panic_costs_only_its_stream() {
+    let mut fx = DriverFixture::new_client();
+    fx.complete_handshake_client();
+    let pseudos = PseudoHeaders::default()
+        .with_method(Method::Post)
+        .with_path("/")
+        .with_scheme("https")
+        .with_authority("test");
+    let (id, mut submit, _transport) = fx
+        .connection
+        .open_stream(
+            pseudos,
+            Headers::new(),
+            Some(Panicking::body(PanicAt::Read)),
+        )
+        .expect("open request");
+    let frames = settle(&mut fx);
+    assert_reset_without_end_stream(&fx, id, &mut submit, &frames);
+
+    let (next, _transport) = super::client_cancellation::open_get(&mut fx);
+    assert!(next > id);
 }

@@ -33,11 +33,11 @@
 //! [RFC 8441]: https://www.rfc-editor.org/rfc/rfc8441
 
 use super::{
-    H2Connection, H2ErrorCode,
+    H2Body, H2Connection, H2ErrorCode,
     stream_state::{StreamEvent, StreamLifecycle},
 };
 use crate::{
-    Body, Buffer, Headers,
+    Buffer, Headers,
     headers::hpack::{FieldSection, PseudoHeaders},
 };
 use atomic_waker::AtomicWaker;
@@ -296,8 +296,10 @@ pub(super) enum OutboundPart {
         pseudos: PseudoHeaders<'static>,
         headers: Arc<Headers>,
     },
-    /// An owned body source, framed directly into DATA frames under flow control.
-    Body(Body),
+    /// An owned body source, framed directly into DATA frames under flow control. Wrapped as an
+    /// [`H2Body`] from the moment it's staged, so even a queued body that's discarded unsent drops
+    /// with its panics contained.
+    Body(H2Body),
     /// Trailing HEADERS — carries `END_STREAM`.
     Trailers(Headers),
     /// Empty `DATA(END_STREAM)` terminator.
@@ -520,7 +522,34 @@ pub(super) struct SendState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::HttpContext;
+    use crate::{Body, HttpContext};
+
+    /// A queued body discarded unsent — here by a reset clearing the queue — drops with its
+    /// panic contained.
+    #[test]
+    fn discarded_queued_body_drop_panic_is_contained() {
+        struct PanicsOnDrop;
+        impl AsyncRead for PanicsOnDrop {
+            fn poll_read(
+                self: Pin<&mut Self>,
+                _cx: &mut Context<'_>,
+                _buf: &mut [u8],
+            ) -> Poll<io::Result<usize>> {
+                Poll::Ready(Ok(0))
+            }
+        }
+        impl Drop for PanicsOnDrop {
+            fn drop(&mut self) {
+                assert!(std::thread::panicking(), "body source panicked in drop");
+            }
+        }
+
+        let state = StreamState::default();
+        *state.lifecycle_lock() = StreamLifecycle::Open;
+        let body = Body::new_streaming(PanicsOnDrop, None).into_h2();
+        state.stage([OutboundPart::Body(body), OutboundPart::Close]);
+        state.request_reset(H2ErrorCode::Cancel);
+    }
 
     #[test]
     fn request_close_enqueues_single_close() {
@@ -548,7 +577,10 @@ mod tests {
     fn request_reset_clears_queue_and_is_first_wins() {
         let state = StreamState::default();
         *state.lifecycle_lock() = StreamLifecycle::Open;
-        state.stage([OutboundPart::Body(Body::default()), OutboundPart::Close]);
+        state.stage([
+            OutboundPart::Body(Body::default().into_h2()),
+            OutboundPart::Close,
+        ]);
         state.request_reset(H2ErrorCode::Cancel);
         state.request_reset(H2ErrorCode::InternalError);
         let queue = state.send.queue.lock().unwrap();
