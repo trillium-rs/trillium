@@ -444,3 +444,26 @@ fn hex_width_matches_formatting() {
         assert_eq!(hex_width(n), format!("{n:X}").len(), "hex_width({n})");
     }
 }
+
+/// A body that ends before its declared length is truncated, not finished: the declared length
+/// already promised the peer more bytes than will come.
+#[test]
+fn streaming_known_length_ending_early_is_an_error() {
+    for framing in [BodyFraming::Raw, BodyFraming::H3Data] {
+        for steps in [vec![Step::Data(b"short"), Step::Eof], vec![Step::Eof]] {
+            let body = Body::new_streaming(ScriptSource::new(steps), Some(100));
+            let error = block_on(async {
+                let mut out = Vec::new();
+                let mut sink = BufWriter::new_with_buffer(Vec::with_capacity(512), &mut out, 2048);
+                body.write_into(&mut sink, framing, CONFIG)
+                    .await
+                    .unwrap_err()
+            });
+            assert_eq!(
+                error.kind(),
+                std::io::ErrorKind::UnexpectedEof,
+                "{framing:?}"
+            );
+        }
+    }
+}
