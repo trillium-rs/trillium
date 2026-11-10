@@ -34,10 +34,11 @@
 
 use super::{
     H2Body, H2Connection, H2ErrorCode,
+    role::Role,
     stream_state::{StreamEvent, StreamLifecycle},
 };
 use crate::{
-    Buffer, Headers,
+    Buffer, Headers, Status,
     headers::hpack::{FieldSection, PseudoHeaders},
 };
 use atomic_waker::AtomicWaker;
@@ -64,6 +65,7 @@ pub struct H2Transport {
     connection: Arc<H2Connection>,
     stream_id: u32,
     state: Arc<StreamState>,
+    role: Role,
 }
 
 impl fmt::Debug for H2Transport {
@@ -80,11 +82,13 @@ impl H2Transport {
         connection: Arc<H2Connection>,
         stream_id: u32,
         state: Arc<StreamState>,
+        role: Role,
     ) -> Self {
         Self {
             connection,
             stream_id,
             state,
+            role,
         }
     }
 
@@ -112,6 +116,10 @@ impl Drop for H2Transport {
     ///   `END_STREAM`.
     /// - **Anything else** (`HalfClosedLocal` awaiting the peer, or send-open with no response ever
     ///   submitted) — abandoning the stream; enqueue `RST_STREAM(Cancel)`.
+    ///
+    /// A server stream dropped while its handler panics, with the response unfinished, is a server
+    /// failure rather than a cancellation: it gets a bodyless `500` if no response had been staged,
+    /// and otherwise `RST_STREAM(INTERNAL_ERROR)`.
     fn drop(&mut self) {
         if !self.connection.streams_lock().contains_key(&self.stream_id) {
             log::trace!(
@@ -122,7 +130,29 @@ impl Drop for H2Transport {
         }
 
         let lifecycle = *self.state.lifecycle_lock();
-        if lifecycle.is_closed() {
+        // Unwinding drops the panicking handler's conn, and with it this transport.
+        let handler_panicked = self.role == Role::Server && std::thread::panicking();
+        if handler_panicked && !lifecycle.send_closed() {
+            if self.state.send.started.load(Ordering::Acquire) {
+                log::error!(
+                    "h2 stream {}: handler panicked mid-response — RST_STREAM(INTERNAL_ERROR)",
+                    self.stream_id,
+                );
+                self.state.request_reset(H2ErrorCode::InternalError);
+            } else {
+                log::error!(
+                    "h2 stream {}: handler panicked before responding — 500",
+                    self.stream_id,
+                );
+                self.state.stage([
+                    OutboundPart::Headers {
+                        pseudos: PseudoHeaders::default().with_status(Status::InternalServerError),
+                        headers: Arc::new(Headers::new()),
+                    },
+                    OutboundPart::Close,
+                ]);
+            }
+        } else if lifecycle.is_closed() {
             log::trace!(
                 "h2 stream {}: H2Transport dropped on wire-closed stream — releasing",
                 self.stream_id,
@@ -368,6 +398,7 @@ impl StreamState {
     /// message rather than a partial one (the `SubmitSend` future keys "done" off the queue
     /// draining to empty). The caller signals the driver.
     pub(super) fn stage(&self, parts: impl IntoIterator<Item = OutboundPart>) {
+        self.send.started.store(true, Ordering::Release);
         self.send
             .queue
             .lock()
@@ -517,6 +548,10 @@ pub(super) struct SendState {
     /// picks it up and removes the entry from both maps. Not protocol state — a local
     /// resource-ownership fact the lifecycle can't represent.
     pub(super) transport_dropped: AtomicBool,
+
+    /// Set once the conn task stages anything to send, so a stream whose handler panics can tell
+    /// whether a response is already underway.
+    pub(super) started: AtomicBool,
 }
 
 #[cfg(test)]
@@ -603,7 +638,7 @@ mod tests {
         let connection = H2Connection::new(Arc::new(context));
         let state = Arc::new(StreamState::default());
         *state.lifecycle_lock() = StreamLifecycle::Open;
-        let mut transport = H2Transport::new(connection, 1, state);
+        let mut transport = H2Transport::new(connection, 1, state, Role::Server);
         let waker = Waker::noop();
         let mut cx = Context::from_waker(waker);
         let buf = [0u8; 32];
