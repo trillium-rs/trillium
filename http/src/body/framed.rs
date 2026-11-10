@@ -261,6 +261,16 @@ fn poll_write_streaming<W: AsyncWrite + Unpin>(
 
             Poll::Ready(Ok(0)) => {
                 buffer.truncate(start);
+                // Short of a declared length, the body was truncated: ending it here would present
+                // it as complete, and the peer could read whatever follows as the missing bytes.
+                if let Some(len) = len
+                    && *progress < len
+                {
+                    return Poll::Ready(Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        format!("body ended after {progress} of {len} declared bytes"),
+                    )));
+                }
                 *done = true;
                 if framing == (BodyFraming::Chunked { keep_open: false }) {
                     buffer.extend_from_slice(b"0\r\n");
