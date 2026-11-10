@@ -788,7 +788,20 @@ where
 
     /// Signal completion, then remove the stream from the driver's private map and the connection's
     /// shared map. Used by error / reset paths and server-role clean completion.
+    ///
+    /// A stream still open on the wire (its body failed mid-send) is reset first: without a
+    /// terminal frame, the peer would wait on it indefinitely. The reset has to precede
+    /// `signal_close`'s wakes, so a woken task re-checks against the closed lifecycle rather than
+    /// parking again on a stream that's about to vanish.
     pub(super) fn complete_and_remove_stream(&mut self, stream_id: u32, result: io::Result<()>) {
+        if self
+            .streams
+            .get(&stream_id)
+            .is_some_and(|entry| !entry.shared.lifecycle_lock().is_closed())
+        {
+            log::debug!("h2 stream {stream_id}: removed while open; RST_STREAM(INTERNAL_ERROR)");
+            self.queue_rst_stream(stream_id, H2ErrorCode::InternalError);
+        }
         self.signal_close(stream_id, result);
         self.remove_from_stream_maps(stream_id);
     }
@@ -799,19 +812,15 @@ where
     /// bounded `stream_priorities` table from filling with dead closed-stream entries (which would
     /// then silently drop later updates at capacity). A `PRIORITY_UPDATE` for a not-yet-opened
     /// stream is retained: this only fires once a stream has been in the maps. The stream's unread
-    /// receive window goes back to the connection.
-    ///
-    /// A stream still open on the wire (its body failed mid-send) is reset first: without a
-    /// terminal frame, the peer would wait on it indefinitely.
+    /// receive window goes back to the connection. Only closed streams come through here; open ones
+    /// go through [`Self::complete_and_remove_stream`], which resets them.
     pub(super) fn remove_from_stream_maps(&mut self, stream_id: u32) {
-        if self
-            .streams
-            .get(&stream_id)
-            .is_some_and(|entry| !entry.shared.lifecycle_lock().is_closed())
-        {
-            log::debug!("h2 stream {stream_id}: removed while open; RST_STREAM(INTERNAL_ERROR)");
-            self.queue_rst_stream(stream_id, H2ErrorCode::InternalError);
-        }
+        debug_assert!(
+            self.streams
+                .get(&stream_id)
+                .is_none_or(|entry| entry.shared.lifecycle_lock().is_closed()),
+            "h2 stream {stream_id} removed while open"
+        );
         if let Some(entry) = self.streams.remove(&stream_id) {
             self.release_stream_recv_window(&entry.shared);
         }
