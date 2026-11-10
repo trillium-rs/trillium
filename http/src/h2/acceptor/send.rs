@@ -549,6 +549,17 @@ where
         };
         if n == 0 {
             self.write_buf.truncate(header_pos);
+            // Short of the declared length (reaching it returns before reading): the body was
+            // truncated, and ending the stream cleanly would present it as complete.
+            if let Some(declared) = cursor.body_declared_len {
+                return Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    format!(
+                        "h2 body ended after {} of {declared} declared bytes",
+                        cursor.body_emitted
+                    ),
+                )));
+            }
             cursor.drain_body_into_trailers();
             return Poll::Ready(Ok(true));
         }
