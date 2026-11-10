@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and waited on the stream indefinitely. The stream is now reset with `INTERNAL_ERROR`.
 - An HTTP/2 body that ended before its declared length was sent as if complete. The stream is now
   reset with `INTERNAL_ERROR`.
+- A panic in an HTTP/2 request or response body — reading it, producing its trailers, or dropping
+  it — took down every stream on the connection. Such a panic is now logged and affects only that
+  body's stream: one while the body is being sent resets the stream with `INTERNAL_ERROR`.
 
 ## [1.8.1] - 2026-11-05
 
