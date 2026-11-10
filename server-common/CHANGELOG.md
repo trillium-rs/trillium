@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- An HTTP/3 response whose body failed partway through, or whose handler panicked, ended its stream
+  as if complete, so a client could take a truncated body for the whole response. Such a stream is
+  now reset with `H3_INTERNAL_ERROR`. A stream handed to an upgrade handler or to WebTransport still
+  finishes when dropped, unless a panic is unwinding.
+
 ## [0.7.14] - 2026-11-05
 
 ### Added

@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- An HTTP/3 request stream is now closed once its response has been sent in full, unless it's being
+  upgraded. It used to be left for the transport to finish when dropped, which couldn't tell a
+  complete response from an abandoned one.
+
 ### Fixed
 
 - Canceling an HTTP/2 client request no longer closes the shared connection when late frames

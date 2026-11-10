@@ -134,7 +134,13 @@ where
             }
         }
 
-        bufwriter.flush().await?;
+        // Closing finishes the stream: the transport's signal that the response is complete, as
+        // opposed to abandoned. An upgrade keeps the stream open for its handler.
+        if upgrading {
+            bufwriter.flush().await?;
+        } else {
+            bufwriter.close().await?;
+        }
         self.inner.after_send.call(true.into());
         Ok(self)
     }
