@@ -484,7 +484,7 @@ where
         );
         self.last_peer_stream_id = stream_id;
 
-        let transport = H2Transport::new(self.connection.clone(), stream_id, state);
+        let transport = H2Transport::new(self.connection.clone(), stream_id, state, Role::Server);
         let start_time = *self.burst_start.get_or_insert_with(Instant::now);
         match Conn::new_h2(
             self.connection.clone(),

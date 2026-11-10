@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A panic in an HTTP/2 request or response body — reading it, producing its trailers, or dropping
   it — took down every stream on the connection. Such a panic is now logged and affects only that
   body's stream: one while the body is being sent resets the stream with `INTERNAL_ERROR`.
+- When an HTTP/2 server handler panicked, the client saw its stream canceled. It now gets a `500`
+  response if the handler hadn't started responding, and `RST_STREAM(INTERNAL_ERROR)` otherwise.
 
 ## [1.8.1] - 2026-11-05
 

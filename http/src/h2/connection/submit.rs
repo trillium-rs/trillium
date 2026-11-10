@@ -14,7 +14,7 @@
 
 use super::H2Connection;
 #[cfg(feature = "unstable")]
-use crate::h2::transport::H2Transport;
+use crate::h2::{role::Role, transport::H2Transport};
 use crate::{
     Body, Headers,
     h2::transport::{OutboundPart, StreamState},
@@ -306,7 +306,7 @@ impl H2Connection {
         };
         log::trace!("h2 client: open_stream allocated stream {stream_id} (upgrade={is_upgrade})");
         self.outbound_waker.wake();
-        let transport = H2Transport::new(Arc::clone(self), stream_id, state.clone());
+        let transport = H2Transport::new(Arc::clone(self), stream_id, state.clone(), Role::Client);
         Some((stream_id, state, transport))
     }
 }

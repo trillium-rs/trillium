@@ -7,9 +7,9 @@
 //! deterministically (TestTransport delivers bytes synchronously, so stepping the two drivers in a
 //! fixed order is fully repeatable).
 
-use super::fixture::noop_waker;
+use super::{fixture::noop_waker, handler_panic::panic_holding};
 use crate::{
-    Conn, Headers, HttpContext, Method,
+    Conn, Headers, HttpContext, Method, Status,
     h2::{
         H2Driver, H2Transport,
         acceptor::types::{CloseOutcome, DriverState},
@@ -19,6 +19,8 @@ use crate::{
     headers::hpack::PseudoHeaders,
 };
 use std::{
+    future::Future,
+    pin::Pin,
     sync::Arc,
     task::{Context, Poll},
 };
@@ -212,5 +214,43 @@ fn server_abandon_and_shutdown_with_client_awaiting_response_drains() {
         d.client_finished,
         "client awaiting a response must finish once the server resets + closes (state={:?})",
         d.client.state,
+    );
+}
+
+/// A server handler that panics before responding answers with a `500`, and the connection keeps
+/// serving requests.
+#[test]
+fn handler_panic_before_responding_answers_500() {
+    let mut d = TwoDrivers::new();
+    d.pump();
+    let (id, _submit, _transport) = d
+        .client_conn
+        .open_stream(client_get_pseudos(), Headers::new(), None)
+        .expect("open_stream");
+    let server_conn = d.pump().pop().expect("server should yield a Conn");
+
+    panic_holding(server_conn);
+    d.pump();
+
+    let waker = noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    let Poll::Ready(Ok(field_section)) =
+        Pin::new(&mut d.client_conn.response_headers(id)).poll(&mut cx)
+    else {
+        panic!("no response headers on stream {id}");
+    };
+    assert_eq!(
+        field_section.pseudo_headers().status(),
+        Some(Status::InternalServerError)
+    );
+
+    let (_next, _submit, _transport) = d
+        .client_conn
+        .open_stream(client_get_pseudos(), Headers::new(), None)
+        .expect("open_stream");
+    assert_eq!(
+        d.pump().len(),
+        1,
+        "the connection should keep serving requests"
     );
 }

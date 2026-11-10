@@ -18,6 +18,7 @@ mod client_cancellation;
 mod close;
 mod fixture;
 mod flow_control;
+mod handler_panic;
 mod hpack_sync;
 mod lifecycle;
 mod priority;
