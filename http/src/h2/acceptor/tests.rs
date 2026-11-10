@@ -12,6 +12,7 @@
 //! orderings), [`shutdown`] (GOAWAY / Closing→Drained), [`flow_control`] (windows + recv
 //! cap).
 
+mod body_failure;
 mod client;
 mod client_cancellation;
 mod close;

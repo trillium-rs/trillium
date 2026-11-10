@@ -14,7 +14,7 @@
 use super::{ClosedReason, DriverState, H2Driver, Role};
 use crate::{
     h2::{
-        H2Body, frame,
+        H2Body, H2ErrorCode, frame,
         stream_state::StreamEvent,
         transport::{OutboundPart, StreamState},
     },
@@ -387,17 +387,12 @@ where
             // Drain the streaming ring before a terminator, and while the queue is empty but the
             // send half is still open (a bidi tunnel awaiting handler writes).
             if send_open && (front_terminal || cursor.parts.is_empty()) {
-                match self.poll_emit_ring(stream_id, cx) {
-                    Poll::Ready(Ok(true)) => { /* ring empty; fall through */ }
+                match self.poll_emit_ring(stream_id) {
+                    Poll::Ready(true) => { /* ring empty; fall through */ }
 
-                    Poll::Ready(Ok(false)) => {
+                    Poll::Ready(false) => {
                         // emitted a ring chunk
                         break DrainOutcome::Progressed;
-                    }
-
-                    Poll::Ready(Err(e)) => {
-                        self.complete_and_remove_stream(stream_id, Err(e));
-                        return DrainOutcome::Done;
                     }
 
                     Poll::Pending => {
@@ -591,11 +586,11 @@ where
     }
 
     /// Drain one DATA frame's worth of bytes from the streaming `outbound` ring, bounded by the
-    /// send windows. `Ready(Ok(true))` means the ring is empty; `Ready(Ok(false))` means a frame
-    /// was emitted; `Pending` means bytes remain but no window.
-    fn poll_emit_ring(&mut self, stream_id: u32, _cx: &mut Context<'_>) -> Poll<io::Result<bool>> {
+    /// send windows. `Ready(true)` means the ring is empty; `Ready(false)` means a frame was
+    /// emitted; `Pending` means bytes remain but no window.
+    fn poll_emit_ring(&mut self, stream_id: u32) -> Poll<bool> {
         let Some(shared) = self.streams.get(&stream_id).map(|e| Arc::clone(&e.shared)) else {
-            return Poll::Ready(Ok(true));
+            return Poll::Ready(true);
         };
         let ring_len = shared
             .send
@@ -604,7 +599,7 @@ where
             .expect("outbound mutex poisoned")
             .len();
         if ring_len == 0 {
-            return Poll::Ready(Ok(true));
+            return Poll::Ready(true);
         }
 
         let stream_window = self.streams.get(&stream_id).map_or(0, |e| e.send_window);
@@ -641,7 +636,7 @@ where
         if let Some(entry) = self.streams.get_mut(&stream_id) {
             entry.send_window -= charge;
         }
-        Poll::Ready(Ok(false))
+        Poll::Ready(false)
     }
 
     /// Emit a HEADERS block (initial response/request or trailers) as HEADERS + CONTINUATION
@@ -794,7 +789,18 @@ where
     /// then silently drop later updates at capacity). A `PRIORITY_UPDATE` for a not-yet-opened
     /// stream is retained: this only fires once a stream has been in the maps. The stream's unread
     /// receive window goes back to the connection.
+    ///
+    /// A stream still open on the wire (its body failed mid-send) is reset first: without a
+    /// terminal frame, the peer would wait on it indefinitely.
     pub(super) fn remove_from_stream_maps(&mut self, stream_id: u32) {
+        if self
+            .streams
+            .get(&stream_id)
+            .is_some_and(|entry| !entry.shared.lifecycle_lock().is_closed())
+        {
+            log::debug!("h2 stream {stream_id}: removed while open; RST_STREAM(INTERNAL_ERROR)");
+            self.queue_rst_stream(stream_id, H2ErrorCode::InternalError);
+        }
         if let Some(entry) = self.streams.remove(&stream_id) {
             self.release_stream_recv_window(&entry.shared);
         }
