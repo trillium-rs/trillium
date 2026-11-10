@@ -1,12 +1,14 @@
 //! HTTP/3 specific exports
 
 mod priority;
+mod request_stream;
 pub mod web_transport;
 use crate::{
     ArcHandler, ArcedQuicEndpoint, BoxedBidiStream, QuicConnection, QuicTransportReceive,
     QuicTransportSend, RuntimeTrait, unmap_ipv4,
 };
 use priority::{PrioritizedStream, PriorityRegistry, transport_priority};
+use request_stream::RequestStream;
 use std::{any::Any, sync::Arc};
 use trillium::{Handler, KnownHeaderName, Listener, Transport, Upgrade};
 use trillium_http::{
@@ -173,7 +175,9 @@ fn handle_bidi_stream(
     // Erased once, as the `Box<dyn Transport>` that `trillium::Conn` holds, so the conn moves into
     // and out of trillium without being boxed again. The paths that need QUIC stream operations
     // downcast back to `RequestStream`.
-    let transport: Box<dyn Transport> = Box::new(RequestStream::new(transport, slot, stream_id));
+    let transport: Box<dyn Transport> = Box::new(RequestStream::new(PrioritizedStream::new(
+        transport, slot, stream_id,
+    )));
 
     runtime.spawn_detached(async move {
         // Unmapped for the same reason the TCP accept loop unmaps: the QUIC listener is bound
@@ -236,9 +240,12 @@ fn handle_bidi_stream(
 
         match result {
             Ok(H3StreamResult::Request(conn)) if conn.should_upgrade() => {
-                let upgrade = Upgrade::from(conn);
+                let mut upgrade = Upgrade::from(conn);
                 if handler.has_upgrade(&upgrade) {
                     log::debug!("upgrading h3 stream");
+                    if let Some(stream) = RequestStream::from_transport(upgrade.transport_mut().1) {
+                        stream.hand_off();
+                    }
                     handler.upgrade(upgrade).await;
                 } else {
                     log::error!("h3 upgrade specified but no upgrade handler provided");
@@ -254,6 +261,7 @@ fn handle_bidi_stream(
             }) => {
                 if let Some(mut stream) = into_request_stream(transport) {
                     if let Some(dispatcher) = &wt_dispatcher {
+                        stream.hand_off();
                         dispatcher.dispatch(WebTransportStream::Bidi {
                             session_id,
                             stream,
@@ -276,11 +284,8 @@ fn handle_bidi_stream(
     });
 }
 
-/// The concrete type behind every h3 request stream's `Box<dyn Transport>`.
-type RequestStream = PrioritizedStream<BoxedBidiStream>;
-
 fn request_stream(transport: &mut Box<dyn Transport>) -> Option<&mut RequestStream> {
-    (&mut **transport as &mut dyn Any).downcast_mut()
+    RequestStream::from_transport(&mut **transport)
 }
 
 fn into_request_stream(transport: Box<dyn Transport>) -> Option<Box<RequestStream>> {
@@ -453,7 +458,11 @@ fn handle_h3_error(error: H3Error, connection: &QuicConnection, h3: &H3Connectio
 
 #[cfg(test)]
 mod tests {
-    use super::{RequestStream, into_request_stream, priority::PriorityRegistry, request_stream};
+    use super::{
+        RequestStream, into_request_stream,
+        priority::{PrioritizedStream, PriorityRegistry},
+        request_stream,
+    };
     use crate::{BoxedBidiStream, QuicTransportBidi, QuicTransportReceive, QuicTransportSend};
     use futures_lite::{AsyncRead, AsyncWrite};
     use std::{
@@ -515,8 +524,9 @@ mod tests {
         let signals = Arc::new(Mutex::new(Vec::new()));
         let registry = PriorityRegistry::default();
         let quic_stream: BoxedBidiStream = Box::new(RecordingBidi(Arc::clone(&signals)));
-        let mut transport: Box<dyn Transport> =
-            Box::new(RequestStream::new(quic_stream, registry.register(0), 0));
+        let mut transport: Box<dyn Transport> = Box::new(RequestStream::new(
+            PrioritizedStream::new(quic_stream, registry.register(0), 0),
+        ));
 
         let stream = request_stream(&mut transport).expect("erased as a RequestStream");
         stream.stop(1);

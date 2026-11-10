@@ -2,7 +2,10 @@ use super::*;
 use std::{
     io::{self, ErrorKind},
     pin::Pin,
-    sync::{Mutex, OnceLock},
+    sync::{
+        Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
     task::{Context, Poll},
 };
 
@@ -58,10 +61,13 @@ fn run_outbound_control_shuts_down_on_writer_error() {
     assert!(!h3.swansong().state().is_running());
 }
 
-/// A transport with canned inbound bytes that records everything written to it.
+/// A transport with canned inbound bytes that records everything written to it, and whether it
+/// was closed.
+#[derive(Default)]
 struct CannedTransport {
     input: futures_lite::io::Cursor<Vec<u8>>,
     written: Arc<Mutex<Vec<u8>>>,
+    closed: Arc<AtomicBool>,
 }
 
 impl AsyncRead for CannedTransport {
@@ -89,6 +95,7 @@ impl AsyncWrite for CannedTransport {
     }
 
     fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.closed.store(true, Ordering::SeqCst);
         Poll::Ready(Ok(()))
     }
 }
@@ -120,6 +127,7 @@ fn with_request_rejection_refuses_the_request_without_responding() {
     let transport = CannedTransport {
         input: futures_lite::io::Cursor::new(encoded_get_request(1)),
         written: written.clone(),
+        ..CannedTransport::default()
     };
 
     let result = futures_lite::future::block_on(async {
@@ -150,6 +158,7 @@ fn without_request_rejection_the_same_stream_is_served() {
     let transport = CannedTransport {
         input: futures_lite::io::Cursor::new(encoded_get_request(1)),
         written: written.clone(),
+        ..CannedTransport::default()
     };
 
     let result = futures_lite::future::block_on(async {
@@ -163,4 +172,54 @@ fn without_request_rejection_the_same_stream_is_served() {
         !written.lock().unwrap().is_empty(),
         "a served request receives a response"
     );
+}
+
+/// Yields some bytes, then fails.
+struct FailsMidway(bool);
+
+impl AsyncRead for FailsMidway {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        _: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<io::Result<usize>> {
+        if self.0 {
+            return Poll::Ready(Err(io::Error::other("body source failed")));
+        }
+        self.0 = true;
+        buf[..7].copy_from_slice(b"partial");
+        Poll::Ready(Ok(7))
+    }
+}
+
+/// A completed response finishes its stream by closing it; one whose body fails leaves the stream
+/// unfinished, so it isn't presented as complete.
+#[test]
+fn only_a_completed_response_finishes_its_stream() {
+    for fails in [false, true] {
+        let h3 = h3();
+        let closed = Arc::new(AtomicBool::new(false));
+        let transport = CannedTransport {
+            input: futures_lite::io::Cursor::new(encoded_get_request(1)),
+            closed: closed.clone(),
+            ..CannedTransport::default()
+        };
+        let body = if fails {
+            crate::Body::new_streaming(FailsMidway(false), None)
+        } else {
+            crate::Body::from("complete")
+        };
+
+        let result = futures_lite::future::block_on(async {
+            h3.process_inbound_bidi(
+                transport,
+                |conn: Conn<CannedTransport>| async move { conn.with_response_body(body) },
+                1,
+            )
+            .await
+        });
+
+        assert_eq!(result.is_ok(), !fails, "fails={fails}");
+        assert_eq!(closed.load(Ordering::SeqCst), !fails, "fails={fails}");
+    }
 }
