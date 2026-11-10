@@ -1,5 +1,6 @@
-//! A response body that fails mid-send must still close its stream on the wire. Otherwise the peer
-//! waits on the stream indefinitely, holding one of its concurrent-stream slots.
+//! A response body that fails mid-send — an error, or EOF short of its declared length — must still
+//! close its stream on the wire, and not with a clean `END_STREAM`. Otherwise the peer waits on the
+//! stream indefinitely, or takes a truncated body as complete.
 
 use super::fixture::*;
 use crate::{
@@ -100,6 +101,20 @@ fn body_error_resets_the_stream() {
             end: Some(io::ErrorKind::ConnectionReset),
         },
         None,
+    );
+    let (fx, mut submit, frames) = respond_with(body);
+    assert_reset_without_end_stream(&fx, &mut submit, &frames);
+}
+
+#[test]
+fn body_ending_before_its_declared_length_resets_the_stream() {
+    let body = Body::new_streaming(
+        ThenEnds {
+            data: b"partial",
+            sent: false,
+            end: None,
+        },
+        Some(100),
     );
     let (fx, mut submit, frames) = respond_with(body);
     assert_reset_without_end_stream(&fx, &mut submit, &frames);
