@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   requests were canceled with response data still unread, handlers finished without reading a
   request body, or the peer sent padded or late DATA frames. The window those bytes held is now
   returned to the peer.
+- When an HTTP/2 request or response body failed partway through sending, the peer was never told
+  and waited on the stream indefinitely. The stream is now reset with `INTERNAL_ERROR`.
 
 ## [1.8.1] - 2026-11-05
 
