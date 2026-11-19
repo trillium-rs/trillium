@@ -1,7 +1,10 @@
 use crate::{ChannelEvent, Version, subscriptions::Subscriptions};
 use async_broadcast::Receiver as BroadcastReceiver;
 use async_channel::Receiver;
-use futures_lite::{Stream, StreamExt, stream::Race};
+use futures_lite::{
+    Stream, StreamExt,
+    stream::{Map, Race},
+};
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -9,9 +12,18 @@ use std::{
 use trillium_websockets::Message;
 
 #[derive(Debug)]
+enum OutboundEvent {
+    Broadcast(ChannelEvent),
+    Individual(ChannelEvent),
+}
+
+type BroadcastStream = Map<BroadcastReceiver<ChannelEvent>, fn(ChannelEvent) -> OutboundEvent>;
+type IndividualStream = Map<Receiver<ChannelEvent>, fn(ChannelEvent) -> OutboundEvent>;
+
+#[derive(Debug)]
 pub struct ClientReceiver {
     subscriptions: Subscriptions,
-    race: Pin<Box<Race<BroadcastReceiver<ChannelEvent>, Receiver<ChannelEvent>>>>,
+    race: Pin<Box<Race<BroadcastStream, IndividualStream>>>,
     version: Version,
 }
 
@@ -23,7 +35,11 @@ impl ClientReceiver {
         version: Version,
     ) -> Self {
         Self {
-            race: Box::pin(broadcast.race(individual)),
+            race: Box::pin(
+                broadcast
+                    .map(OutboundEvent::Broadcast as fn(_) -> _)
+                    .race(individual.map(OutboundEvent::Individual as fn(_) -> _)),
+            ),
             subscriptions,
             version,
         }
@@ -35,21 +51,27 @@ impl Stream for ClientReceiver {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
-            match self.race.poll_next(cx) {
-                Poll::Ready(Some(event)) if !self.subscriptions.subscribes(&event) => continue,
-                Poll::Ready(Some(event)) => {
-                    if let Ok(text) = event.serialize(self.version) {
-                        log::trace!(
-                            "serialized {:?} with {:?} as {:?}",
-                            event,
-                            self.version,
-                            text
-                        );
-                        break Poll::Ready(Some(Message::text(text)));
-                    }
+            let event = match self.race.poll_next(cx) {
+                Poll::Ready(Some(OutboundEvent::Broadcast(mut event))) => {
+                    // A Phoenix client drops a frame tied to another client's join.
+                    event.join_reference = None;
+                    event.reference = None;
+                    event
                 }
-                Poll::Pending => break Poll::Pending,
-                Poll::Ready(None) => break Poll::Ready(None),
+                Poll::Ready(Some(OutboundEvent::Individual(event))) => event,
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(None) => return Poll::Ready(None),
+            };
+            if self.subscriptions.subscribes(&event)
+                && let Ok(text) = event.serialize(self.version)
+            {
+                log::trace!(
+                    "serialized {:?} with {:?} as {:?}",
+                    event,
+                    self.version,
+                    text
+                );
+                return Poll::Ready(Some(Message::text(text)));
             }
         }
     }
