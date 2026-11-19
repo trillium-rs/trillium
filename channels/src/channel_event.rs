@@ -59,16 +59,24 @@ impl ChannelEvent {
         event: impl Into<Cow<'static, str>>,
         payload: &impl Serialize,
     ) -> ChannelEvent {
-        ChannelEvent {
+        self.try_build_reply(event, payload).unwrap()
+    }
+
+    pub(crate) fn try_build_reply(
+        &self,
+        event: impl Into<Cow<'static, str>>,
+        payload: &impl Serialize,
+    ) -> serde_json::Result<ChannelEvent> {
+        Ok(ChannelEvent {
             topic: self.topic.clone(),
             event: event.into(),
-            payload: match serde_json::to_value(payload).unwrap() {
+            payload: match serde_json::to_value(payload)? {
                 Value::Null => Value::Object(Default::default()),
                 other => other,
             },
             reference: self.reference.clone(),
             join_reference: self.join_reference.clone(),
-        }
+        })
     }
 
     pub(crate) fn serialize(&self, version: Version) -> serde_json::Result<String> {

@@ -12,24 +12,24 @@ use std::{
 use trillium_websockets::Message;
 
 #[derive(Debug)]
-enum OutboundEvent {
+pub(crate) enum OutboundEvent {
     Broadcast(ChannelEvent),
     Individual(ChannelEvent),
+    Reply(ChannelEvent),
 }
 
 type BroadcastStream = Map<BroadcastReceiver<ChannelEvent>, fn(ChannelEvent) -> OutboundEvent>;
-type IndividualStream = Map<Receiver<ChannelEvent>, fn(ChannelEvent) -> OutboundEvent>;
 
 #[derive(Debug)]
 pub struct ClientReceiver {
     subscriptions: Subscriptions,
-    race: Pin<Box<Race<BroadcastStream, IndividualStream>>>,
+    race: Pin<Box<Race<BroadcastStream, Receiver<OutboundEvent>>>>,
     version: Version,
 }
 
 impl ClientReceiver {
-    pub fn new(
-        individual: Receiver<ChannelEvent>,
+    pub(crate) fn new(
+        individual: Receiver<OutboundEvent>,
         broadcast: BroadcastReceiver<ChannelEvent>,
         subscriptions: Subscriptions,
         version: Version,
@@ -38,7 +38,7 @@ impl ClientReceiver {
             race: Box::pin(
                 broadcast
                     .map(OutboundEvent::Broadcast as fn(_) -> _)
-                    .race(individual.map(OutboundEvent::Individual as fn(_) -> _)),
+                    .race(individual),
             ),
             subscriptions,
             version,
@@ -53,18 +53,25 @@ impl Stream for ClientReceiver {
         loop {
             let event = match self.race.poll_next(cx) {
                 Poll::Ready(Some(OutboundEvent::Broadcast(mut event))) => {
+                    if !self.subscriptions.subscribes(&event) {
+                        continue;
+                    }
                     // A Phoenix client drops a frame tied to another client's join.
                     event.join_reference = None;
                     event.reference = None;
                     event
                 }
-                Poll::Ready(Some(OutboundEvent::Individual(event))) => event,
+                Poll::Ready(Some(OutboundEvent::Individual(event))) => {
+                    if !self.subscriptions.subscribes(&event) {
+                        continue;
+                    }
+                    event
+                }
+                Poll::Ready(Some(OutboundEvent::Reply(event))) => event,
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(None) => return Poll::Ready(None),
             };
-            if self.subscriptions.subscribes(&event)
-                && let Ok(text) = event.serialize(self.version)
-            {
+            if let Ok(text) = event.serialize(self.version) {
                 log::trace!(
                     "serialized {:?} with {:?} as {:?}",
                     event,

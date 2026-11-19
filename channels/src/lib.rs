@@ -75,7 +75,7 @@
 //!                 conn.broadcast(("rooms:lobby", "user:entered"));
 //!             }
 //!
-//!             _ => {}
+//!             _ => conn.reject(&event, &"unknown room").await,
 //!         }
 //!     }
 //!

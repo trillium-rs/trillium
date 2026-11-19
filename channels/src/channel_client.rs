@@ -1,4 +1,8 @@
-use crate::{ChannelEvent, Version, client_receiver::ClientReceiver, subscriptions::Subscriptions};
+use crate::{
+    ChannelEvent, Version,
+    client_receiver::{ClientReceiver, OutboundEvent},
+    subscriptions::Subscriptions,
+};
 use async_broadcast::{Receiver, Sender as BroadcastSender};
 use async_channel::Sender;
 use serde::Serialize;
@@ -14,7 +18,7 @@ use trillium_websockets::Message;
 #[derive(Debug, Clone)]
 pub struct ChannelClient {
     subscriptions: Subscriptions,
-    sender: Sender<ChannelEvent>,
+    sender: Sender<OutboundEvent>,
     broadcast_sender: BroadcastSender<ChannelEvent>,
     version: Version,
 }
@@ -51,40 +55,60 @@ impl ChannelClient {
     /// this message will only be received if the client subscribes to
     /// the event's topic.
     pub async fn send_event(&self, event: impl Into<ChannelEvent>) {
-        log_error!(self.sender.send(event.into()).await);
+        log_error!(
+            self.sender
+                .send(OutboundEvent::Individual(event.into()))
+                .await
+        );
     }
 
-    /// Send an ok reply in reference to the provided ChannelEvent
-    /// with the provided response payload.
-    ///
-    /// Note that this sets the event as `"phx_reply"` and the payload as
-    /// `{"status": "ok", "response": response }`, as well as setting the
-    /// reference field.
+    /// Send a `phx_reply` with status `"ok"` and the provided response payload.
+    /// The reply preserves the request's references and does not require a topic subscription.
     pub async fn reply_ok(&self, event: &ChannelEvent, payload: &impl Serialize) {
+        self.reply(event, "ok", payload).await;
+    }
+
+    /// Reject a join or push with a `phx_reply` with status `"error"`.
+    ///
+    /// The reply preserves the request's references and reaches the client even
+    /// if it has not joined the topic. This does not change its subscriptions.
+    pub async fn reject(&self, event: &ChannelEvent, error: &impl Serialize) {
+        self.reply(event, "error", error).await;
+    }
+
+    async fn reply(&self, event: &ChannelEvent, status: &'static str, response: &impl Serialize) {
         #[derive(serde::Serialize)]
         struct Reply<'a, S> {
             status: &'static str,
             response: &'a S,
         }
 
-        self.send_event(event.build_reply(
-            "phx_reply",
-            &Reply {
-                status: "ok",
-                response: payload,
-            },
-        ))
-        .await
+        match event.try_build_reply("phx_reply", &Reply { status, response }) {
+            Ok(reply) => log_error!(self.sender.send(OutboundEvent::Reply(reply)).await),
+            Err(error) => log::error!("could not serialize channel reply: {error}"),
+        }
     }
 
-    /// Send an error reply in reference to the provided ChannelEvent
-    /// with the provided response payload.
+    /// Mark the client's channel for this event's topic as errored, by sending a `phx_error`.
     ///
-    /// Note that this sets the event as `"phx_error"` as well as setting
-    /// the reference field.
+    /// The Phoenix JavaScript client treats this as a crashed channel and rejoins it. The event
+    /// is only delivered if the client subscribes to the topic. To reject an individual join or
+    /// push, use [`Self::reject`] instead.
+    pub async fn mark_channel_errored(&self, event: &ChannelEvent, error: &impl Serialize) {
+        match event.try_build_reply("phx_error", error) {
+            Ok(reply) => self.send_event(reply).await,
+            Err(error) => log::error!("could not serialize channel error: {error}"),
+        }
+    }
+
+    /// Mark the client's channel for this event's topic as errored.
+    #[deprecated(
+        since = "0.5.0",
+        note = "to refuse a join or push, use `reject`; to put the client's channel in an error \
+                state, use `mark_channel_errored`"
+    )]
     pub async fn reply_error(&self, event: &ChannelEvent, error: &impl Serialize) {
-        self.send_event(event.build_reply("phx_error", &error))
-            .await
+        self.mark_channel_errored(event, error).await;
     }
 
     /// Join a topic, sending an ok reply with the provided optional

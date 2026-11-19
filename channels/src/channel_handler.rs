@@ -29,7 +29,7 @@ use std::future::Future;
 ///                 conn.broadcast(("rooms:lobby", "user:entered"));
 ///             }
 ///
-///             _ => {}
+///             _ => conn.reject(&event, &"unknown room").await,
 ///         }
 ///     }
 ///
@@ -56,7 +56,9 @@ pub trait ChannelHandler: Sized + Send + Sync + 'static {
     /// `join_channel` is called when a websocket client sends a
     /// `phx_join` event. There is no default implementation to ensure
     /// that you implement the appropriate access control logic for your
-    /// application. If you want clients to be able to connect to any
+    /// application. To refuse a join, use [`ChannelConn::reject`].
+    ///
+    /// If you want clients to be able to connect to any
     /// channel they request, use this definition:
     ///
     /// ```

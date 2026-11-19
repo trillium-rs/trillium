@@ -9,13 +9,31 @@ struct Lobby;
 
 impl ChannelHandler for Lobby {
     async fn join_channel(&self, conn: ChannelConn<'_>, event: ChannelEvent) {
-        conn.allow_join(&event, &()).await;
+        if event.topic() == "rooms:lobby" {
+            conn.allow_join(&event, &()).await;
+        } else {
+            conn.reject(&event, &json!({"reason": "unknown room"}))
+                .await;
+        }
     }
 
     async fn incoming_message(&self, conn: ChannelConn<'_>, event: ChannelEvent) {
-        if event.event() == "new:msg" {
-            conn.reply_ok(&event, &()).await;
-            conn.broadcast(event);
+        match event.event() {
+            "new:msg" => {
+                conn.reply_ok(&event, &()).await;
+                conn.broadcast(event);
+            }
+            "reject" => {
+                // An ordinary send must still be filtered on an unjoined topic,
+                // even if the event name matches a reply.
+                conn.send_event(event.build_reply("phx_reply", &())).await;
+                conn.reject(&event, &json!({"reason": "forbidden"})).await;
+            }
+            "fail" => {
+                conn.mark_channel_errored(&event, &json!({"reason": "failed"}))
+                    .await
+            }
+            _ => {}
         }
     }
 }
@@ -113,5 +131,76 @@ async fn broadcasts_are_independent_of_the_senders_join(runtime: Runtime) {
     assert!(
         (first == reply && second == broadcast) || (first == broadcast && second == reply),
         "unexpected frames: {first}, {second}"
+    );
+}
+
+#[test(harness = with_runtime)]
+async fn rejection_replies_do_not_require_or_create_subscriptions(runtime: Runtime) {
+    let server = ServerConnector::new(channel(Lobby));
+    let mut client = Client::connect(
+        &runtime,
+        &server,
+        "ws://localhost/socket/websocket?vsn=2.0.0",
+    )
+    .await;
+
+    client
+        .send(json!(["1", "1", "rooms:unknown", "phx_join", {}]))
+        .await;
+    assert_eq!(
+        client.receive().await,
+        json!(["1", "1", "rooms:unknown", "phx_reply", {"status": "error", "response": {"reason": "unknown room"}}])
+    );
+
+    client
+        .send(json!(["1", "2", "rooms:unknown", "reject", {}]))
+        .await;
+    assert_eq!(
+        client.receive().await,
+        json!(["1", "2", "rooms:unknown", "phx_reply", {"status": "error", "response": {"reason": "forbidden"}}])
+    );
+}
+
+#[test(harness = with_runtime)]
+async fn leave_is_acknowledged_and_channel_errors_are_lifecycle_events(runtime: Runtime) {
+    let server = ServerConnector::new(channel(Lobby));
+    let mut client = Client::connect(
+        &runtime,
+        &server,
+        "ws://localhost/socket/websocket?vsn=2.0.0",
+    )
+    .await;
+    let ok = json!({"status": "ok", "response": null});
+
+    client
+        .send(json!(["1", "1", "rooms:lobby", "phx_join", {}]))
+        .await;
+    assert_eq!(
+        client.receive().await,
+        json!(["1", "1", "rooms:lobby", "phx_reply", ok])
+    );
+
+    client
+        .send(json!(["1", "2", "rooms:lobby", "fail", {}]))
+        .await;
+    assert_eq!(
+        client.receive().await,
+        json!(["1", "2", "rooms:lobby", "phx_error", {"reason": "failed"}])
+    );
+
+    client
+        .send(json!(["1", "3", "rooms:lobby", "phx_leave", {}]))
+        .await;
+    assert_eq!(
+        client.receive().await,
+        json!(["1", "3", "rooms:lobby", "phx_reply", ok])
+    );
+
+    client
+        .send(json!(["1", "4", "rooms:lobby", "reject", {}]))
+        .await;
+    assert_eq!(
+        client.receive().await,
+        json!(["1", "4", "rooms:lobby", "phx_reply", {"status": "error", "response": {"reason": "forbidden"}}])
     );
 }

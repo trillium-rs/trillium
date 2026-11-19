@@ -6,6 +6,8 @@ impl ChannelHandler for ChatChannel {
         if event.topic() == "rooms:lobby" {
             conn.allow_join(&event, &()).await;
             conn.broadcast(("rooms:lobby", "user:entered"));
+        } else {
+            conn.reject(&event, &"unknown room").await;
         }
     }
 
