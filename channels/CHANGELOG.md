@@ -6,8 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Breaking**: depends on `trillium-websockets` 0.9 (was 0.7), so `ChannelConn` dereferences to that version's `WebSocketConn`.
+- **Breaking**: browsers can only connect from a page on the same host as the socket. An application whose pages and sockets are on different hosts must name the page origins with `Channel::allow_origins`.
+
 ### Added
 - `ChannelConn::reject` and `ChannelClient::reject` send a correlated error reply for a join or push, without subscribing the client to the topic.
+- `Channel::allow_origins`, `Channel::allow_origin_fn`, and `Channel::allow_any_origin` configure which pages may connect.
+- `Channel::with_protocol_config` configures websocket limits such as maximum message and frame sizes, and `WebSocketConfig` is reexported.
 - `ChannelConn::mark_channel_errored` and `ChannelClient::mark_channel_errored` send a `phx_error`, which the Phoenix JavaScript client treats as a crashed channel and rejoins.
 
 ### Deprecated
