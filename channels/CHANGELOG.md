@@ -6,9 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `ChannelConn::reject` and `ChannelClient::reject` send a correlated error reply for a join or push, without subscribing the client to the topic.
+- `ChannelConn::mark_channel_errored` and `ChannelClient::mark_channel_errored` send a `phx_error`, which the Phoenix JavaScript client treats as a crashed channel and rejoins.
+
+### Deprecated
+- `ChannelConn::reply_error` and `ChannelClient::reply_error`, which send a `phx_error` rather than an error reply. To refuse a join or push, use `reject`; to put the client's channel in an error state, use `mark_channel_errored`.
+
 ### Fixed
 - WebSocket upgrades honor the `vsn` query parameter, so Phoenix V2 clients can join and push events.
 - Phoenix JavaScript clients discarded broadcasts that originated from another client's push. Broadcasts no longer carry the originating `ref` or `join_ref`, so they reach every subscriber.
+- Clients receive the `allow_leave` acknowledgment after unsubscribing from the topic.
 
 ## [0.4.0] - 2026-05-02
 

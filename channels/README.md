@@ -16,6 +16,9 @@ Clients connect via WebSocket and subscribe to topics; the server can broadcast 
 subscribers of a topic. Implement the [`ChannelHandler`][docs] trait to define your application's
 join and message logic.
 
+The crate supports Phoenix V1 and V2 JSON messages over WebSockets, including the stock
+Phoenix JavaScript client's default V2 serializer. Binary frames and long polling are not supported.
+
 ## Example
 
 ```rust,no_run
@@ -30,7 +33,7 @@ impl ChannelHandler for ChatChannel {
                 conn.allow_join(&event, &()).await;
                 conn.broadcast(("rooms:lobby", "user:entered"));
             }
-            _ => {}
+            _ => conn.reject(&event, &"unknown room").await,
         }
     }
 

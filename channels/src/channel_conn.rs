@@ -51,23 +51,41 @@ impl ChannelConn<'_> {
         channel_client!(self).send_event(event).await;
     }
 
-    /// Send an ok reply in reference to the provided ChannelEvent
-    /// with the provided response payload.
-    ///
-    /// Note that this sets the event as `"phx_reply"` and the payload as
-    /// `{"status": "ok", "response": response }`, as well as setting the
-    /// reference field.
+    /// Send a `phx_reply` with status `"ok"` and the provided response payload.
+    /// The reply preserves the request's references and does not require a topic subscription.
     pub async fn reply_ok(&self, event: &ChannelEvent, response: &impl Serialize) {
         channel_client!(self).reply_ok(event, response).await;
     }
 
-    /// Send an error reply in reference to the provided ChannelEvent
-    /// with the provided response payload.
+    /// Reject a join or push with a `phx_reply` with status `"error"`.
     ///
-    /// Note that this sets the event as `"phx_error"` as well as setting
-    /// the reference field.
+    /// The reply preserves the request's references and reaches the client even
+    /// if it has not joined the topic. This does not change its subscriptions.
+    pub async fn reject(&self, event: &ChannelEvent, error: &impl Serialize) {
+        channel_client!(self).reject(event, error).await;
+    }
+
+    /// Mark the client's channel for this event's topic as errored, by sending a `phx_error`.
+    ///
+    /// The Phoenix JavaScript client treats this as a crashed channel and rejoins it. The event
+    /// is only delivered if the client subscribes to the topic. To reject an individual join or
+    /// push, use [`Self::reject`] instead.
+    pub async fn mark_channel_errored(&self, event: &ChannelEvent, error: &impl Serialize) {
+        channel_client!(self)
+            .mark_channel_errored(event, error)
+            .await;
+    }
+
+    /// Mark the client's channel for this event's topic as errored.
+    #[deprecated(
+        since = "0.5.0",
+        note = "to refuse a join or push, use `reject`; to put the client's channel in an error \
+                state, use `mark_channel_errored`"
+    )]
     pub async fn reply_error(&self, event: &ChannelEvent, error: &impl Serialize) {
-        channel_client!(self).reply_error(event, error).await;
+        channel_client!(self)
+            .mark_channel_errored(event, error)
+            .await;
     }
 
     /// Join a topic, sending an ok reply with the provided optional

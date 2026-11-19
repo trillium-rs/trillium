@@ -24,7 +24,7 @@ trillium-websockets.workspace = true
 
 [dev-dependencies]
 async-tungstenite = { version = "0.35.0", default-features = false, features = ["handshake"] }
-trillium-api = { path = "../api" }
+trillium-api = { path = "../api", features = ["sonic-rs"] }
 trillium-caching-headers = { path = "../caching-headers" }
 trillium-conn-id = { path = "../conn-id" }
 trillium-logger = { path = "../logger" }
