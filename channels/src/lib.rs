@@ -165,6 +165,7 @@ macro_rules! event {
 }
 
 pub use serde_json::json;
+pub use trillium_websockets::WebSocketConfig;
 
 /// Constructs a new [`Channel`] trillium handler from the provided
 /// [`ChannelHandler`]. This is an alias for [`Channel::new`]
