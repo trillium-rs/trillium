@@ -72,3 +72,6 @@ pub mod recipes {}
 #[cfg(test)]
 #[doc = include_str!("../README.md")]
 mod readme {}
+
+mod missing_handler;
+pub use missing_handler::missing_handler;
